@@ -1,0 +1,64 @@
+{% extends "laudos/base.html" %}
+{% block titulo %}Laudos · Anamnese 4.2{% endblock %}
+{% block topo %}Laudos{% endblock %}
+{% block conteudo %}
+<div class="grade-lista">
+  <section class="cartao">
+    <div class="cartao-cabecalho">
+      <span class="icone">{% include 'laudos/componentes/icone.html' with nome='mais' %}</span>
+      <h2>Novo laudo</h2>
+    </div>
+    <p class="cartao-texto discreto">Envie a anamnese anotada. O sistema escreve a 4.2 completa e depois você ajusta conversando.</p>
+    <div class="cartao-corpo">
+      {% if sem_exemplos %}
+        <p class="aviso erro">Os exemplos dos laudos base ainda não foram carregados. Rode <code>python manage.py carregar_exemplos</code>.</p>
+      {% endif %}
+      <form method="post" action="{% url 'novo' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <label class="campo">
+          <span class="rotulo">Nome do paciente <span class="obrigatorio">*</span></span>
+          <input type="text" name="paciente" required autocomplete="off">
+        </label>
+        <label class="campo">
+          <span class="rotulo">Anamnese em arquivo</span>
+          <input type="file" name="arquivo" accept=".pdf,.docx,.txt,.md" class="arquivo">
+          <span class="apagado">PDF, Word ou texto.</span>
+        </label>
+        <label class="campo">
+          <span class="rotulo">Ou cole a anamnese aqui</span>
+          <textarea name="anamnese" rows="9" placeholder="Anotações da anamnese"></textarea>
+        </label>
+        <button type="submit" class="botao primario">{% include 'laudos/componentes/icone.html' with nome='mais' tamanho=16 %} Criar laudo</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="cartao">
+    <div class="cartao-cabecalho">
+      <span class="icone">{% include 'laudos/componentes/icone.html' with nome='laudos' %}</span>
+      <h2>Laudos</h2>
+      {% if laudos %}<span class="contador-pill">{{ laudos|length|stringformat:'02d' }}</span>{% endif %}
+    </div>
+    {% if laudos %}
+      <ul class="lista">
+        {% for l in laudos %}
+          <li>
+            <span class="avatar">{{ l.paciente|slice:":1"|upper }}</span>
+            <a class="nome" href="{% url 'laudo' l.id %}">{{ l.paciente }}</a>
+            <span class="apagado">{{ l.criado_em|date:"d/m/Y H:i" }}</span>
+            <a class="botao-icone" href="{% url 'laudo' l.id %}" title="Abrir" aria-label="Abrir laudo de {{ l.paciente }}">
+              {% include 'laudos/componentes/icone.html' with nome='proximo' tamanho=16 %}</a>
+          </li>
+        {% endfor %}
+      </ul>
+      <div style="height:8px"></div>
+    {% else %}
+      <div class="estado-vazio">
+        <span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='vazio' tamanho=26 %}</span>
+        <h2>Nenhum laudo ainda</h2>
+        <p>Crie o primeiro laudo ao lado, enviando a anamnese anotada do paciente.</p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

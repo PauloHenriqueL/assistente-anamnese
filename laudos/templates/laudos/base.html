@@ -1,0 +1,58 @@
+{% load static %}<!doctype html>
+<html lang="pt-br" data-tema="escuro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Anamnese 4.2{% endblock %}</title>
+  <link rel="icon" href="{% static 'laudos/icone.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=DM+Serif+Display&display=swap">
+  <link rel="stylesheet" href="{% static 'laudos/app.css' %}">
+  <script>
+    try { const t = localStorage.getItem('tema'); if (t) document.documentElement.dataset.tema = t; } catch (e) {}
+  </script>
+</head>
+<body>
+{% with rota=request.resolver_match.url_name %}
+<div class="app">
+  <header class="topbar">
+    <a class="bloco-marca" href="{% url 'lista' %}">
+      <span class="selo">{% include 'laudos/componentes/icone.html' with nome='marca' tamanho=17 %}</span>
+      <span>Anamnese <em>4.2</em></span>
+    </a>
+    <div class="topo-titulo">{% block topo %}{% endblock %}</div>
+    <div class="acoes-topo">
+      <button type="button" id="alternar-tema" title="Alternar tema claro e escuro" aria-label="Alternar tema claro e escuro">
+        {% include 'laudos/componentes/icone.html' with nome='tema' tamanho=18 %}
+      </button>
+    </div>
+  </header>
+
+  <div class="corpo">
+    <nav class="sidebar" aria-label="Navegação principal">
+      <a class="item-menu" href="{% url 'lista' %}" {% if rota == 'lista' or rota == 'laudo' %}aria-current="page"{% endif %}>
+        {% include 'laudos/componentes/icone.html' with nome='laudos' tamanho=21 %}<span>Laudos</span>
+      </a>
+      <a class="item-menu" href="{% url 'estatisticas' %}" {% if rota == 'estatisticas' %}aria-current="page"{% endif %}>
+        {% include 'laudos/componentes/icone.html' with nome='avaliacoes' tamanho=21 %}<span>Avaliações</span>
+      </a>
+    </nav>
+    <main class="conteudo">
+      <div class="container{% block largura %}{% endblock %}">
+        {% if messages %}
+          {% for m in messages %}
+            <p class="aviso {% if m.tags == 'error' %}erro{% else %}sucesso{% endif %}" role="{% if m.tags == 'error' %}alert{% else %}status{% endif %}">{{ m }}</p>
+          {% endfor %}
+        {% endif %}
+        {% block conteudo %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+{% endwith %}
+{% csrf_token %}
+<script src="{% static 'laudos/app.js' %}"></script>
+</body>
+</html>

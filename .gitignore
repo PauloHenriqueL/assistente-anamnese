@@ -1,0 +1,8 @@
+.venv/
+.env
+db.sqlite3
+__pycache__/
+*.pyc
+
+# 4.2 de laudos reais: fica só na máquina local.
+laudos/seeds/laudos_base.json
