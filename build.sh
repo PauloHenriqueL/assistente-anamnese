@@ -13,5 +13,8 @@ python manage.py createcachetable
 # Aplica as migrações no banco do Neon.
 python manage.py migrate
 
-# Garante o usuário administrador (lê ADMIN_USUARIO / ADMIN_SENHA do ambiente).
-python manage.py garantir_admin
+# Garante o usuário administrador só quando as credenciais estão no ambiente.
+# Sem elas, o deploy segue normal (o admin já foi criado direto no banco).
+if [ -n "$ADMIN_USUARIO" ] && [ -n "$ADMIN_SENHA" ]; then
+  python manage.py garantir_admin
+fi
