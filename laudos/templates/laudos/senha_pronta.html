@@ -1,0 +1,12 @@
+{% extends "laudos/base.html" %}
+{% block titulo %}Senha alterada · Anamnese 4.2{% endblock %}
+{% block conteudo %}
+<section class="cartao cartao-estreito">
+  <div class="estado-vazio">
+    <span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='cadeado' tamanho=26 %}</span>
+    <h2>Senha alterada</h2>
+    <p>A nova senha já vale a partir do próximo acesso.</p>
+    <a class="botao primario" href="{% url 'lista' %}">Voltar aos laudos</a>
+  </div>
+</section>
+{% endblock %}

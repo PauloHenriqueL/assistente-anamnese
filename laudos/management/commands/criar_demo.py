@@ -3,7 +3,10 @@
 Serve para ver as telas sem chamar a IA. Nenhum dado é de paciente real.
 """
 
-from django.core.management.base import BaseCommand
+import os
+
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from laudos.models import Avaliacao, Laudo, Mensagem, Paragrafo, Versao
@@ -21,6 +24,13 @@ Saúde: rinite.
 Medicação: não faz uso.
 HF: pai com diagnóstico de TDAH na vida adulta.
 Profissionais: psicóloga há cerca de oito meses."""
+
+DEMANDA = (
+    "A avaliação neuropsicológica foi solicitada pelo próprio Bruno, após sugestão da psicóloga que o acompanha, "
+    "visando compreender a dificuldade persistente para concluir tarefas. O paciente relata atrasos acadêmicos desde "
+    "a faculdade e esquecimentos frequentes no trabalho. Atualmente, busca entender o próprio funcionamento para "
+    "organizar melhor a rotina."
+)
 
 PARAGRAFOS = [
     ("trajetoria_escolar",
@@ -61,14 +71,26 @@ PARAGRAFOS = [
 class Command(BaseCommand):
     help = "Cria um laudo de demonstração com dados fictícios, sem chamar a IA."
 
+    def add_arguments(self, parser):
+        parser.add_argument("--usuario", help="Dono do laudo de demonstração. Padrão: ADMIN_USUARIO.")
+
     @transaction.atomic
     def handle(self, *args, **opcoes):
-        Laudo.objects.filter(paciente=PACIENTE).delete()
-        laudo = Laudo.objects.create(paciente=PACIENTE, anamnese=ANAMNESE, arquivo_nome="anamnese_demonstracao.txt")
-        Mensagem.objects.create(laudo=laudo, papel=Mensagem.USUARIA, texto="Gere a seção 4.2 completa a partir da anamnese acima.")
-        resposta = Mensagem.objects.create(laudo=laudo, papel=Mensagem.IA, texto="Gerei a 4.2 com um parágrafo por tema e as linhas de dados no fim.")
+        nome = opcoes.get("usuario") or os.environ.get("ADMIN_USUARIO", "")
+        User = get_user_model()
+        dono = User.objects.filter(username__iexact=nome).first() if nome else User.objects.filter(is_superuser=True).first()
+        if dono is None:
+            raise CommandError("Nenhum usuário para ser dono do laudo. Rode garantir_admin antes ou use --usuario.")
+        Laudo.objects.filter(paciente=PACIENTE, dono=dono).delete()
+        laudo = Laudo.objects.create(dono=dono, paciente=PACIENTE, anamnese=ANAMNESE, arquivo_nome="anamnese_demonstracao.txt")
+        Mensagem.objects.create(laudo=laudo, secao="2", papel=Mensagem.USUARIA, texto="Escreva a descrição da demanda a partir da anamnese.")
+        msg_demanda = Mensagem.objects.create(laudo=laudo, secao="2", papel=Mensagem.IA, texto="")
+        demanda = Paragrafo.objects.create(laudo=laudo, secao="2", tema="demanda")
+        Versao.objects.create(paragrafo=demanda, numero=1, texto=DEMANDA, trechos_origem=["Queixa: procurou avaliação por conta própria"], origem=Versao.GERACAO, mensagem=msg_demanda)
+        Mensagem.objects.create(laudo=laudo, secao="4.2", papel=Mensagem.USUARIA, texto="Gere a seção 4.2 completa a partir da anamnese acima.")
+        resposta = Mensagem.objects.create(laudo=laudo, secao="4.2", papel=Mensagem.IA, texto="Gerei a 4.2 com um parágrafo por tema e as linhas de dados no fim.")
         for posicao, (tema, texto, trechos, avaliacao) in enumerate(PARAGRAFOS):
-            paragrafo = Paragrafo.objects.create(laudo=laudo, tema=tema, posicao=0)
+            paragrafo = Paragrafo.objects.create(laudo=laudo, secao="4.2", tema=tema, posicao=0)
             versao = Versao.objects.create(
                 paragrafo=paragrafo, numero=1, texto=texto, trechos_origem=trechos,
                 origem=Versao.GERACAO, mensagem=resposta,

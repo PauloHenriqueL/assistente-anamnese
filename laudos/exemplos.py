@@ -23,15 +23,20 @@ REFORCOS = {
 }
 
 
-def estilo():
+def estilo(secao="4.2"):
     grupos = defaultdict(list)
-    for ex in Exemplo.objects.filter(fonte=Exemplo.LAUDO_BASE, ativo=True).order_by("grupo", "posicao"):
+    for ex in Exemplo.objects.filter(fonte=Exemplo.LAUDO_BASE, ativo=True, secao=secao).order_by("grupo", "posicao"):
         grupos[ex.grupo].append(ex.texto)
     return dict(grupos)
 
 
-def pares(temas_presentes=None):
-    consulta = Exemplo.objects.filter(fonte=Exemplo.LIKE, ativo=True).exclude(trecho_origem="").order_by("-criado_em")
+def pares(dono, secao="4.2", temas_presentes=None):
+    """Pares aprovados pela própria usuária nesta seção. Exemplos de uma nunca entram no prompt de outra."""
+    consulta = (
+        Exemplo.objects.filter(fonte=Exemplo.LIKE, ativo=True, dono=dono, secao=secao)
+        .exclude(trecho_origem="")
+        .order_by("-criado_em")
+    )
     if temas_presentes:
         consulta = consulta.filter(tema__in=temas_presentes)
     escolhidos, por_tema = [], Counter()
@@ -45,8 +50,11 @@ def pares(temas_presentes=None):
     return escolhidos
 
 
-def contagem_motivos(ultimos=None):
-    consulta = Avaliacao.objects.filter(tipo=Avaliacao.DESLIKE).order_by("-criado_em")
+def contagem_motivos(dono, secao=None, ultimos=None):
+    consulta = Avaliacao.objects.filter(tipo=Avaliacao.DESLIKE, versao__paragrafo__laudo__dono=dono)
+    if secao:
+        consulta = consulta.filter(versao__paragrafo__secao=secao)
+    consulta = consulta.order_by("-criado_em")
     if ultimos:
         consulta = consulta[:ultimos]
     contagem = Counter()
@@ -57,9 +65,9 @@ def contagem_motivos(ultimos=None):
     return contagem, total
 
 
-def reforcos():
-    """Regras extras para os motivos que aparecem em boa parte dos deslikes recentes."""
-    contagem, total = contagem_motivos(ultimos=30)
+def reforcos(dono, secao="4.2"):
+    """Regras extras para os motivos que aparecem em boa parte dos deslikes recentes da usuária na seção."""
+    contagem, total = contagem_motivos(dono, secao=secao, ultimos=30)
     if total == 0:
         return ""
     linhas = [

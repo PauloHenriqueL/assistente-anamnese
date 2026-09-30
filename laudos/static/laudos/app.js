@@ -70,7 +70,7 @@
         await enviar(`/versoes/${id}/avaliar/`, { tipo: "deslike", motivos, comentario: form.comentario.value });
       } else if (botao.dataset.acao === "editar") {
         const form = dialogoEditar.querySelector("form");
-        form.texto.value = cartao.querySelector(".texto").textContent.trim();
+        form.texto.value = cartao.querySelector(".texto").innerText.trim();
         if ((await abrir(dialogoEditar)) !== "ok") return;
         await enviar(`/versoes/${id}/editar/`, { texto: form.texto.value });
       }
@@ -98,7 +98,7 @@
       await navigator.clipboard.writeText(texto);
       const rotulo = copiar.querySelector("span") || copiar;
       rotulo.textContent = "Copiado";
-      setTimeout(() => (rotulo.textContent = "Copiar 4.2"), 2000);
+      setTimeout(() => (rotulo.textContent = copiar.dataset.rotulo || "Copiar"), 2000);
     });
   }
 })();

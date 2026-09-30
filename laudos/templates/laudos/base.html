@@ -27,6 +27,18 @@
       <button type="button" id="alternar-tema" title="Alternar tema claro e escuro" aria-label="Alternar tema claro e escuro">
         {% include 'laudos/componentes/icone.html' with nome='tema' tamanho=18 %}
       </button>
+      {% if user.is_superuser %}
+        <a href="{% url 'admin:auth_user_changelist' %}" title="Usuários" aria-label="Gerenciar usuários">
+          {% include 'laudos/componentes/icone.html' with nome='usuarios' tamanho=18 %}</a>
+      {% endif %}
+      <a href="{% url 'senha' %}" title="Trocar senha" aria-label="Trocar senha">
+        {% include 'laudos/componentes/icone.html' with nome='cadeado' tamanho=18 %}</a>
+      <form method="post" action="{% url 'sair' %}" class="linha">
+        {% csrf_token %}
+        <span class="avatar" title="{{ user.get_full_name|default:user.username }}">{{ user.get_full_name|default:user.username|slice:":1"|upper }}</span>
+        <button type="submit" title="Sair" aria-label="Sair da conta">
+          {% include 'laudos/componentes/icone.html' with nome='sair' tamanho=18 %}</button>
+      </form>
     </div>
   </header>
 

@@ -27,10 +27,14 @@ class Command(BaseCommand):
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
         Exemplo.objects.filter(fonte=Exemplo.LAUDO_BASE).delete()
         total = 0
-        for chave, paragrafos in dados.items():
-            for posicao, p in enumerate(paragrafos):
-                Exemplo.objects.create(
-                    tema=p["tema"], texto=p["texto"], fonte=Exemplo.LAUDO_BASE, grupo=NOMES.get(chave, chave), posicao=posicao
-                )
-                total += 1
-        self.stdout.write(self.style.SUCCESS(f"{total} parágrafos de laudos base carregados."))
+        for chave, conteudo in dados.items():
+            # Formato antigo: lista de parágrafos da 4.2. Formato atual: {seção: [blocos]}.
+            por_secao = {"4.2": conteudo} if isinstance(conteudo, list) else conteudo
+            for secao, blocos in por_secao.items():
+                for posicao, p in enumerate(blocos):
+                    Exemplo.objects.create(
+                        secao=secao, tema=p["tema"], texto=p["texto"], fonte=Exemplo.LAUDO_BASE,
+                        grupo=NOMES.get(chave, chave), posicao=posicao,
+                    )
+                    total += 1
+        self.stdout.write(self.style.SUCCESS(f"{total} blocos de laudos base carregados."))

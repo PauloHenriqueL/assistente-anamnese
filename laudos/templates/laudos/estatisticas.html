@@ -5,7 +5,7 @@
 <div class="indicadores">
   <div class="indicador"><div class="rotulo">Bons exemplos</div><div class="valor">{{ total_likes }}</div></div>
   <div class="indicador"><div class="rotulo">Parágrafos reprovados</div><div class="valor">{{ total_deslikes }}</div></div>
-  <div class="indicador"><div class="rotulo">Reforços ativos no prompt</div><div class="valor">{% if reforcos %}{{ reforcos.splitlines|length }}{% else %}0{% endif %}</div></div>
+  <div class="indicador"><div class="rotulo">Seções com reforços ativos</div><div class="valor">{{ reforcos|length }}</div></div>
 </div>
 
 <div class="grade-lista mt">
@@ -31,7 +31,7 @@
       <h2>Bons exemplos por tema</h2>
     </div>
     {% if likes_por_tema %}
-      <ul class="lista">{% for rotulo, n in likes_por_tema %}<li><span class="nome">{{ rotulo }}</span><span class="distintivo marca">{{ n }}</span></li>{% endfor %}</ul>
+      <ul class="lista">{% for titulo, rotulo, n in likes_por_tema %}<li><span class="nome">{{ rotulo }}<span class="apagado"> · {{ titulo }}</span></span><span class="distintivo marca">{{ n }}</span></li>{% endfor %}</ul>
       <div style="height:8px"></div>
     {% else %}
       <div class="estado-vazio"><span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='vazio' tamanho=24 %}</span><h2>Nenhum parágrafo curtido</h2><p>Cada parágrafo marcado com Gostei vira exemplo para os próximos laudos.</p></div>
@@ -45,7 +45,7 @@
     <h2>Reforços que entram no prompt agora</h2>
   </div>
   <div class="cartao-corpo">
-    {% if reforcos %}<pre class="bloco-codigo">{{ reforcos }}</pre>{% else %}<p class="discreto">Nenhum. Um motivo vira reforço quando aparece em pelo menos 3 e em 30% dos últimos 30 parágrafos reprovados.</p>{% endif %}
+    {% if reforcos %}{% for titulo, texto in reforcos %}<p class="rotulo-reforco">{{ titulo }}</p><pre class="bloco-codigo">{{ texto }}</pre>{% endfor %}{% else %}<p class="discreto">Nenhum. Um motivo vira reforço quando aparece em pelo menos 3 e em 30% dos últimos 30 parágrafos reprovados.</p>{% endif %}
   </div>
 </section>
 {% endblock %}

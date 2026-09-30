@@ -1,0 +1,25 @@
+{% extends "laudos/base.html" %}
+{% block titulo %}Trocar senha · Anamnese 4.2{% endblock %}
+{% block topo %}Trocar senha{% endblock %}
+{% block conteudo %}
+<section class="cartao cartao-estreito">
+  <div class="cartao-cabecalho">
+    <span class="icone">{% include 'laudos/componentes/icone.html' with nome='cadeado' %}</span>
+    <h2>Trocar senha</h2>
+  </div>
+  <div class="cartao-corpo">
+    <form method="post">
+      {% csrf_token %}
+      {% for campo in form %}
+        <label class="campo">
+          <span class="rotulo">{{ campo.label }}</span>
+          <input type="password" name="{{ campo.html_name }}" autocomplete="{% if forloop.first %}current-password{% else %}new-password{% endif %}" required>
+          {% for erro in campo.errors %}<span class="erro-campo" role="alert">{{ erro }}</span>{% endfor %}
+          {% if campo.help_text and not forloop.first %}<span class="apagado ajuda-senha">{{ campo.help_text|safe }}</span>{% endif %}
+        </label>
+      {% endfor %}
+      <button type="submit" class="botao primario">Salvar nova senha</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

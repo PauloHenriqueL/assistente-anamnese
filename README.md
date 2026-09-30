@@ -1,6 +1,6 @@
 # Anamnese 4.2
 
-Assistente de escrita clínica que gera a seção de anamnese de laudos neuropsicológicos com IA, confere o texto contra as anotações da psicóloga e aprende com as avaliações dela.
+Assistente de escrita clínica que gera, seção por seção, o texto de laudos neuropsicológicos com IA, confere o texto contra as anotações da psicóloga e aprende com as avaliações dela.
 
 > **In English:** a Django app that drafts the anamnesis section of neuropsychological reports with an LLM. Every draft is checked by a second model call for missing facts and unsupported claims, rewritten once if needed, and versioned. The psychologist rates each paragraph; approved paragraphs are stored with their source notes and fed back as few-shot examples, while the reasons behind rejections become prompt reinforcements.
 
@@ -13,12 +13,13 @@ O critério de um bom parágrafo é dela. Por isso o sistema não tenta adivinha
 ## Como funciona
 
 1. A psicóloga cria o laudo e envia a anamnese anotada em PDF, Word ou texto.
-2. A IA gera a seção inteira, com um parágrafo por tema e numa ordem fixa. A resposta vem num formato estruturado, em que cada parágrafo traz o tema e os trechos das anotações que o sustentam.
-3. Uma segunda chamada confere cada parágrafo contra as anotações. Ela lista o que ficou de fora e as frases sem apoio.
-4. Se houver problema, só os parágrafos afetados são reescritos, uma única vez. O que ainda sobrar aparece como aviso na tela.
-5. Ela pede ajustes em conversa livre. Cada ajuste vira uma nova versão do parágrafo, sem mexer nos outros.
-6. Quando ela cola um texto próprio para revisar, o sistema mede quanto a IA mudou. Se a revisão alterar demais as palavras dela sem pedido de acréscimo, o texto é refeito.
-7. Cada parágrafo pode ser marcado como bom ou ruim. Um parágrafo aprovado vira par de exemplo, junto com as anotações de origem. Um reprovado pede o motivo, e os motivos frequentes viram regras extras no prompt.
+2. Ela escolhe a seção em que quer trabalhar: descrição da demanda, anamnese, relação entre testes e relatos, hipóteses diagnósticas ou recomendações. Cada seção tem a própria conversa e recebe como base as seções anteriores.
+3. A IA gera a seção inteira, com um parágrafo por tema e numa ordem fixa. A resposta vem num formato estruturado, em que cada parágrafo traz o tema e os trechos das anotações que o sustentam.
+4. Uma segunda chamada confere cada parágrafo contra as anotações. Ela lista o que ficou de fora e as frases sem apoio.
+5. Se houver problema, só os parágrafos afetados são reescritos, uma única vez. O que ainda sobrar aparece como aviso na tela.
+6. Ela pede ajustes em conversa livre. Cada ajuste vira uma nova versão do parágrafo, sem mexer nos outros.
+7. Quando ela cola um texto próprio para revisar, o sistema mede quanto a IA mudou. Se a revisão alterar demais as palavras dela sem pedido de acréscimo, o texto é refeito.
+8. Cada parágrafo pode ser marcado como bom ou ruim. Um parágrafo aprovado vira par de exemplo, junto com as anotações de origem. Um reprovado pede o motivo, e os motivos frequentes viram regras extras no prompt.
 
 ## Decisões técnicas
 
@@ -27,6 +28,7 @@ O critério de um bom parágrafo é dela. Por isso o sistema não tenta adivinha
 - **Exemplos escolhidos por tema, sem banco vetorial.** Com poucas dezenas de pares aprovados, uma consulta comum resolve. A busca vetorial com pgvector fica para quando houver centenas.
 - **Contexto curto e fixo.** Cada chamada leva a anamnese, a versão atual da seção e as últimas mensagens. Isso evita que a IA se afaste das regras em conversas longas.
 - **Provedor intercambiável.** OpenAI ou Gemini, escolhidos por uma variável de ambiente, com novas tentativas automáticas quando o serviço está sobrecarregado.
+- **Acesso e isolamento.** Toda página exige login. Cada laudo e cada exemplo aprovado têm dona, e um laudo de outra pessoa responde como se não existisse. O login bloqueia por 15 minutos depois de 5 senhas erradas, e em produção só há HTTPS, cookies seguros e HSTS.
 - **Sigilo.** Nenhum dado de paciente real está no repositório. Os laudos de referência ficam só na máquina local, e o repositório traz exemplos fictícios.
 
 A entrevista de requisitos e todas as decisões estão em [demandas.md](demandas.md).
@@ -53,12 +55,14 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env          # coloque a chave da OpenAI em OPENAI_API_KEY
 .venv/bin/python manage.py migrate
+.venv/bin/python manage.py createcachetable
+.venv/bin/python manage.py garantir_admin      # cria o administrador a partir de ADMIN_USUARIO e ADMIN_SENHA
 .venv/bin/python manage.py carregar_exemplos
 .venv/bin/python manage.py criar_demo       # laudo fictício para ver as telas sem gastar a chave
 .venv/bin/python manage.py runserver
 ```
 
-Abra http://127.0.0.1:8000. Para ver os modelos que a chave libera, rode `.venv/bin/python manage.py listar_modelos`.
+Abra http://127.0.0.1:8000 e entre com o administrador. Novas usuárias são criadas em `/admin`, em Usuários. Para ver os modelos que a chave libera, rode `.venv/bin/python manage.py listar_modelos`.
 
 ## Testes
 

@@ -35,7 +35,8 @@ Uma conversa real com o Gemini mostrou quatro falhas:
 ## Decisões tomadas por mim
 
 - **Banco.** SQLite no protótipo. Postgres quando for para um servidor.
-- **Usuária.** Uma só, sem login no protótipo.
+- **Acesso.** Login obrigatório em todas as páginas. O administrador é criado pelo comando garantir_admin a partir de ADMIN_USUARIO e ADMIN_SENHA, que ficam no ambiente e nunca no código. As usuárias clínicas são criadas pelo administrador no painel e veem só os próprios laudos e exemplos.
+- **Segurança.** Bloqueio de 15 minutos após 5 senhas erradas, sessão de 12 horas e, em produção, HTTPS obrigatório, cookies seguros e HSTS.
 - **Leitura da anamnese.** PDF, Word e texto colado, lidos pelo próprio sistema. O texto lido fica visível na tela do laudo para ela conferir.
 - **Contexto de cada chamada.** A anamnese inteira, a 4.2 atual e as últimas 12 mensagens. Respostas antigas completas não são reenviadas, para o Gemini não se afastar das regras em conversas longas.
 - **Modelo.** Definido por `OPENAI_MODEL` ou `GEMINI_MODEL` no `.env`. Temperatura 0,4 na escrita e 0 na verificação; modelos de raciocínio da OpenAI rodam sem temperatura.
@@ -44,7 +45,21 @@ Uma conversa real com o Gemini mostrou quatro falhas:
 - **Sigilo nos exemplos.** Os nomes de pacientes, familiares e profissionais dos laudos base foram trocados. O arquivo com esses laudos fica só na máquina local e não entra no repositório; no lugar dele, o repositório traz um exemplo fictício.
 - **Provedor da IA.** O sistema aceita OpenAI e Gemini, escolhidos por IA_PROVEDOR no .env. A OpenAI é o padrão. A usuária não vê qual IA está em uso.
 
-## Ordem dos temas
+## Seções do laudo
+
+O sistema escreve cinco seções, cada uma com a própria conversa. Depois de criar o laudo e enviar a anamnese, ela escolhe na visão geral em qual seção entrar.
+
+| Seção | Base que a IA recebe além da anamnese | Regra principal |
+|---|---|---|
+| 2. Descrição da demanda | nenhuma | um parágrafo, só com o que está na queixa |
+| 4.2 Dados da entrevista de anamnese | nenhuma | um parágrafo por tema, sem cortar informação |
+| 5.1 Relação entre os instrumentos e os relatos | 2 e 4.2 | os resultados vêm do que ela contar na conversa |
+| 5.2 Hipóteses diagnósticas | 2, 4.2 e 5.1 | só escreve os diagnósticos que ela indicar |
+| 6. Recomendações e encaminhamentos | 4.2, 5.1 e 5.2 | focos de intervenção ligados às dificuldades do caso |
+
+Cada seção tem os próprios tipos de bloco, exemplos, pares aprovados, reforços e regras de verificação. Se uma seção de base ainda não foi escrita, a tela avisa, mas deixa seguir. Os dados criados antes das seções ficaram na 4.2.
+
+## Ordem dos temas da 4.2
 
 1. Trajetória escolar e acadêmica
 2. Memória, atenção e aprendizagem

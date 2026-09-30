@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -47,9 +48,13 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    # Serve os arquivos estáticos em produção (Render), sem precisar de outro servidor.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Toda página exige login, menos as marcadas como públicas (a tela de entrada).
+    'django.contrib.auth.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -77,11 +82,14 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Em produção usa o Postgres do Neon (via DATABASE_URL). Sem essa variável,
+# cai no SQLite local para desenvolvimento.
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+        ssl_require=os.environ.get("DATABASE_URL", "").startswith("postgres"),
+    )
 }
 
 
@@ -120,6 +128,20 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# Pasta onde o "collectstatic" junta os arquivos para o WhiteNoise servir em produção.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Em produção, o WhiteNoise comprime e versiona os arquivos (exige "collectstatic").
+# Em dev/teste (DEBUG=1) usa o storage simples, que não precisa do manifesto.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        )
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -138,3 +160,26 @@ GEMINI_TEMPERATURA = float(os.environ.get("GEMINI_TEMPERATURA", "0.4"))
 
 # Anamneses grandes chegam coladas no formulário.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+
+# Acesso
+LOGIN_URL = "entrar"
+LOGIN_REDIRECT_URL = "lista"
+LOGOUT_REDIRECT_URL = "entrar"
+SESSION_COOKIE_AGE = 12 * 60 * 60  # a sessão expira em 12 horas
+SESSION_COOKIE_HTTPONLY = True
+CSRF_TRUSTED_ORIGINS = [o for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o]
+
+# Produção: só HTTPS, cookies seguros e cabeçalhos de proteção.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # o Render entrega o HTTPS pelo proxy
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+    X_FRAME_OPTIONS = "DENY"
+
+# Cache no banco: o bloqueio de tentativas de login vale para todos os processos do servidor.
+CACHES = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "cache_django"}}

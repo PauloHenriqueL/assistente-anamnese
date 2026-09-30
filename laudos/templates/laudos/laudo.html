@@ -3,105 +3,51 @@
 {% block largura %} largo{% endblock %}
 {% block topo %}<nav class="trilha"><a href="{% url 'lista' %}">Laudos</a><span>/</span><span>{{ laudo.paciente }}</span></nav>{% endblock %}
 {% block conteudo %}
-<div class="laudo" data-laudo="{{ laudo.id }}" data-url-mensagem="{% url 'mensagem' laudo.id %}">
+<div class="ficha">
+  {% include "laudos/_menu_secoes.html" %}
 
-  <section class="cartao conversa">
-    <div class="cartao-cabecalho">
-      <span class="icone">{% include 'laudos/componentes/icone.html' with nome='conversa' %}</span>
-      <h2>{{ laudo.paciente }}</h2>
-    </div>
-    <details class="anamnese">
-      <summary>{% include 'laudos/componentes/icone.html' with nome='anamnese' tamanho=15 %} Anamnese enviada{% if laudo.arquivo_nome %}: {{ laudo.arquivo_nome }}{% endif %}</summary>
-      <pre>{{ laudo.anamnese }}</pre>
-    </details>
-
-    <div class="mensagens" id="mensagens">
-      {% for m in mensagens %}
-        <div class="mensagem {{ m.papel }}">
-          {% if m.erro %}
-            <p class="aviso erro">{{ m.erro }}</p>
-          {% else %}
-            {% if m.texto %}<p class="fala">{{ m.texto|linebreaksbr }}</p>{% endif %}
-            {% for versao in m.versoes.all %}{% include "laudos/_paragrafo.html" with editavel=False %}{% endfor %}
-          {% endif %}
-        </div>
-      {% empty %}
-        <div class="estado-vazio">
-          <span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='conversa' tamanho=24 %}</span>
-          <h2>Pronto para gerar a 4.2</h2>
-          <p>Clique em gerar para escrever a seção completa a partir da anamnese, ou escreva uma orientação antes.</p>
-        </div>
-      {% endfor %}
-    </div>
-
-    <form class="caixa" id="caixa">
-      <textarea id="texto" rows="3" placeholder="{% if paragrafos %}Peça um ajuste, ou cole um parágrafo que você editou e peça para arrumar a escrita{% else %}Orientação opcional para a primeira geração{% endif %}"></textarea>
-      <div class="acoes">
-        <span class="apagado" id="estado">Ctrl + Enter envia</span>
-        <button type="submit" class="botao primario">
-          {% include 'laudos/componentes/icone.html' with nome='enviar' tamanho=15 %}
-          {% if paragrafos %}Enviar{% else %}Gerar 4.2{% endif %}</button>
-      </div>
-    </form>
-  </section>
-
-  <section class="cartao secao42">
-    <div class="cartao-cabecalho">
-      <span class="icone">{% include 'laudos/componentes/icone.html' with nome='laudos' %}</span>
-      <h2>4.2 Dados da entrevista de anamnese</h2>
-      {% if paragrafos %}
+  <div class="ficha-conteudo">
+    <section class="cartao">
+      <div class="cartao-cabecalho">
+        <span class="icone">{% include 'laudos/componentes/icone.html' with nome='laudos' %}</span>
+        <h2>Em qual parte do laudo você quer trabalhar?</h2>
         <div class="direita">
-          <button type="button" class="botao" id="copiar" data-url="{% url 'texto_42' laudo.id %}">
-            {% include 'laudos/componentes/icone.html' with nome='copiar' tamanho=15 %} <span>Copiar 4.2</span></button>
+          <button type="button" class="botao" id="copiar" data-url="{% url 'texto_completo' laudo.id %}" data-rotulo="Copiar laudo">
+            {% include 'laudos/componentes/icone.html' with nome='copiar' tamanho=15 %} <span>Copiar laudo</span></button>
         </div>
-      {% endif %}
-    </div>
-    <div class="cartao-corpo">
-      {% for paragrafo, versao in paragrafos %}
-        {% include "laudos/_paragrafo.html" with editavel=True %}
-      {% empty %}
-        <div class="estado-vazio">
-          <span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='laudos' tamanho=24 %}</span>
-          <h2>A seção aparece aqui</h2>
-          <p>Depois da primeira geração, cada tema vira um parágrafo, na ordem do laudo.</p>
-        </div>
-      {% endfor %}
-    </div>
-  </section>
-</div>
+      </div>
+      <p class="cartao-texto discreto">Cada seção tem a própria conversa. A IA recebe a anamnese, as seções anteriores e o que você contar na conversa daquela seção.</p>
 
-<dialog id="dialogo-deslike" class="modal">
-  <form method="dialog">
-    <header><h3>O que não ficou bom?</h3></header>
-    <div class="modal-corpo">
-      <div class="opcoes">
-        {% for chave, rotulo in motivos %}
-          <label class="opcao"><input type="checkbox" name="motivo" value="{{ chave }}"> {{ rotulo }}</label>
+      <ul class="lista-secoes">
+        {% for item in situacao %}
+          <li>
+            <a href="{% url 'secao' laudo.id item.secao.chave %}" class="item-secao">
+              <span class="numero-secao grande">{{ item.secao.chave }}</span>
+              <span class="crescer">
+                <span class="titulo-secao">{{ item.secao.titulo }}</span>
+                <span class="apagado">{{ item.secao.descricao }}</span>
+                {% if item.faltando and not item.blocos %}
+                  <span class="aviso-inline">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=13 %} Ainda sem: {{ item.faltando|join:", " }}</span>
+                {% endif %}
+              </span>
+              {% if item.blocos %}
+                <span class="distintivo sucesso">{{ item.blocos }} bloco{{ item.blocos|pluralize }}</span>
+              {% else %}
+                <span class="distintivo neutro">Não iniciada</span>
+              {% endif %}
+              {% include 'laudos/componentes/icone.html' with nome='proximo' tamanho=16 %}
+            </a>
+          </li>
         {% endfor %}
-      </div>
-      <label class="campo">
-        <span class="rotulo">Comentário, se quiser</span>
-        <textarea name="comentario" rows="3"></textarea>
-      </label>
-      <div class="acoes">
-        <button value="cancelar" class="botao fantasma">Cancelar</button>
-        <button value="ok" class="botao primario">Salvar</button>
-      </div>
-    </div>
-  </form>
-</dialog>
+      </ul>
+    </section>
 
-<dialog id="dialogo-editar" class="modal largo">
-  <form method="dialog">
-    <header><h3>Editar parágrafo</h3></header>
-    <div class="modal-corpo">
-      <p class="nota">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>A sua edição vira uma nova versão e não é alterada pela IA.</span></p>
-      <textarea name="texto" rows="12"></textarea>
-      <div class="acoes">
-        <button value="cancelar" class="botao fantasma">Cancelar</button>
-        <button value="ok" class="botao primario">Salvar versão</button>
-      </div>
-    </div>
-  </form>
-</dialog>
+    <section class="cartao mt">
+      <details class="anamnese solta">
+        <summary>{% include 'laudos/componentes/icone.html' with nome='anamnese' tamanho=15 %} Anamnese enviada{% if laudo.arquivo_nome %}: {{ laudo.arquivo_nome }}{% endif %}</summary>
+        <pre>{{ laudo.anamnese }}</pre>
+      </details>
+    </section>
+  </div>
+</div>
 {% endblock %}

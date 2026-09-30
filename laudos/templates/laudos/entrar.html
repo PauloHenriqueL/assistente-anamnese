@@ -1,0 +1,41 @@
+{% load static %}<!doctype html>
+<html lang="pt-br" data-tema="escuro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar · Anamnese 4.2</title>
+  <link rel="icon" href="{% static 'laudos/icone.svg' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=DM+Serif+Display&display=swap">
+  <link rel="stylesheet" href="{% static 'laudos/app.css' %}">
+  <script>try { const t = localStorage.getItem('tema'); if (t) document.documentElement.dataset.tema = t; } catch (e) {}</script>
+</head>
+<body>
+<main class="tela-entrada">
+  <section class="cartao cartao-entrada">
+    <div class="marca-entrada">
+      <span class="selo grande">{% include 'laudos/componentes/icone.html' with nome='marca' tamanho=26 %}</span>
+      <span>Anamnese <em>4.2</em></span>
+      <p class="apagado">Acesso restrito à equipe clínica.</p>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        {% for erro in form.non_field_errors %}<p class="aviso erro" role="alert">{{ erro }}</p>{% endfor %}
+      {% endif %}
+      <label class="campo">
+        <span class="rotulo">Usuário</span>
+        <input type="text" name="username" value="{{ form.username.value|default:'' }}" autocomplete="username" autofocus required>
+      </label>
+      <label class="campo">
+        <span class="rotulo">Senha</span>
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <input type="hidden" name="next" value="{{ next }}">
+      <button type="submit" class="botao primario largura-total">Entrar</button>
+    </form>
+  </section>
+</main>
+</body>
+</html>

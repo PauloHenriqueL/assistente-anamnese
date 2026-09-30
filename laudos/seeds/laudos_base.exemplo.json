@@ -1,40 +1,48 @@
 {
- "laudo_ficticio_demonstracao": [
-  {
-   "tema": "trajetoria_escolar",
-   "texto": "No que se refere à trajetória acadêmica, Bruno relata que manteve bom desempenho escolar até o ensino médio, sem queixas de aprendizagem. Ao ingressar na faculdade de engenharia, passou a atrasar a entrega de trabalhos, acumulando pendências ao longo dos períodos. Informa que chegou a trancar um semestre diante dessa dificuldade."
-  },
-  {
-   "tema": "cognicao",
-   "texto": "Em relação à atenção, descreve distrações frequentes com o celular durante reuniões de trabalho, perdendo o fio de conversas mais longas. Acrescenta que esquece compromissos quando não os registra."
-  },
-  {
-   "tema": "rotina",
-   "texto": "Quanto à organização cotidiana, Bruno menciona utilizar alarmes para lembrar das atividades do dia. Ainda assim, refere atrasos frequentes e pontua que a mesa de trabalho costuma ficar desorganizada."
-  },
-  {
-   "tema": "social",
-   "texto": "Referente à socialização, mantém um grupo pequeno de amigos desde a época escolar, com quem prefere se encontrar em casa. Destaca que se cansa em festas grandes, optando por ambientes mais tranquilos."
-  },
-  {
-   "tema": "sono",
-   "texto": "Por fim, sobre o sono, relata que costuma se deitar por volta de uma hora da manhã e acorda cansado. Consome café três vezes ao dia."
-  },
-  {
-   "tema": "saude",
-   "texto": "- Saúde: Refere ter rinite."
-  },
-  {
-   "tema": "medicacao",
-   "texto": "- Uso de Medicação: Não faz uso."
-  },
-  {
-   "tema": "historico_familiar",
-   "texto": "- Histórico Familiar: De acordo com Bruno, o pai recebeu diagnóstico de Transtorno do Déficit de Atenção e Hiperatividade (TDAH) na vida adulta."
-  },
-  {
-   "tema": "profissionais",
-   "texto": "- Profissional que acompanha: Psicóloga (atendimento há cerca de oito meses)."
-  }
- ]
+ "laudo_ficticio_demonstracao": {
+  "2": [
+   {
+    "tema": "demanda",
+    "texto": "A avaliação neuropsicológica foi solicitada pelo próprio Bruno, após sugestão da psicóloga que o acompanha, visando compreender a dificuldade persistente para concluir tarefas. O paciente relata atrasos acadêmicos desde a faculdade e esquecimentos frequentes no trabalho. Atualmente, busca entender o próprio funcionamento para organizar melhor a rotina."
+   }
+  ],
+  "4.2": [
+   {
+    "tema": "trajetoria_escolar",
+    "texto": "No que se refere à trajetória acadêmica, Bruno relata que manteve bom desempenho escolar até o ensino médio, sem queixas de aprendizagem. Ao ingressar na faculdade de engenharia, passou a atrasar a entrega de trabalhos, acumulando pendências ao longo dos períodos. Informa que chegou a trancar um semestre diante dessa dificuldade."
+   },
+   {
+    "tema": "cognicao",
+    "texto": "Em relação à atenção, descreve distrações frequentes com o celular durante reuniões de trabalho, perdendo o fio de conversas mais longas. Acrescenta que esquece compromissos quando não os registra."
+   },
+   {
+    "tema": "rotina",
+    "texto": "Quanto à organização cotidiana, Bruno menciona utilizar alarmes para lembrar das atividades do dia. Ainda assim, refere atrasos frequentes e pontua que a mesa de trabalho costuma ficar desorganizada."
+   },
+   {
+    "tema": "social",
+    "texto": "Referente à socialização, mantém um grupo pequeno de amigos desde a época escolar, com quem prefere se encontrar em casa. Destaca que se cansa em festas grandes, optando por ambientes mais tranquilos."
+   },
+   {
+    "tema": "sono",
+    "texto": "Por fim, sobre o sono, relata que costuma se deitar por volta de uma hora da manhã e acorda cansado. Consome café três vezes ao dia."
+   },
+   {
+    "tema": "saude",
+    "texto": "- Saúde: Refere ter rinite."
+   },
+   {
+    "tema": "medicacao",
+    "texto": "- Uso de Medicação: Não faz uso."
+   },
+   {
+    "tema": "historico_familiar",
+    "texto": "- Histórico Familiar: De acordo com Bruno, o pai recebeu diagnóstico de Transtorno do Déficit de Atenção e Hiperatividade (TDAH) na vida adulta."
+   },
+   {
+    "tema": "profissionais",
+    "texto": "- Profissional que acompanha: Psicóloga (atendimento há cerca de oito meses)."
+   }
+  ]
+ }
 }

@@ -12,11 +12,13 @@ import time
 from django.conf import settings
 from pydantic import BaseModel
 
-from . import temas
+from functools import lru_cache
+
+from pydantic import create_model
+
+from . import secoes
 
 logger = logging.getLogger(__name__)
-
-Tema = enum.Enum("Tema", {chave: chave for chave in temas.CHAVES}, type=str)
 
 
 class Modo(str, enum.Enum):
@@ -27,7 +29,7 @@ class Modo(str, enum.Enum):
 
 class ParagrafoIA(BaseModel):
     id: str
-    tema: Tema
+    tema: str
     texto: str
     trechos_origem: list[str]
     modo: Modo
@@ -162,8 +164,23 @@ def _mensagem_de_erro(texto, sem_cota, passageiro, tentativas):
     return "A IA não conseguiu responder. Tente enviar a mensagem de novo e, se o erro continuar, avise o responsável pelo sistema."
 
 
-def gerar(sistema, conteudo):
-    return chamar(sistema, conteudo, RespostaIA, temperatura=settings.GEMINI_TEMPERATURA)
+@lru_cache(maxsize=None)
+def esquema_resposta(chave_secao):
+    """Formato de resposta em que o tema só aceita os tipos de bloco da seção."""
+    secao = secoes.secao(chave_secao)
+    nome = "S" + chave_secao.replace(".", "_")
+    Tipo = enum.Enum(f"Tipo{nome}", {c: c for c in secao.chaves_tipos}, type=str)
+    Paragrafo = create_model(
+        f"Paragrafo{nome}",
+        id=(str, ...), tema=(Tipo, ...), texto=(str, ...), trechos_origem=(list[str], ...),
+        modo=(Modo, ...), texto_base_usuaria=(str, ...), pediu_acrescimo=(bool, ...),
+    )
+    return create_model(f"Resposta{nome}", mensagem=(str, ...), paragrafos=(list[Paragrafo], ...), remover=(list[str], ...))
+
+
+def gerar(sistema, conteudo, chave_secao="4.2"):
+    especifica = chamar(sistema, conteudo, esquema_resposta(chave_secao), temperatura=settings.GEMINI_TEMPERATURA)
+    return RespostaIA.model_validate(especifica.model_dump(mode="json"))
 
 
 def verificar(sistema, conteudo):

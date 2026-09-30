@@ -1,0 +1,18 @@
+<aside class="ficha-lateral">
+  <div class="ficha-identidade">
+    <span class="avatar grande">{{ laudo.paciente|slice:":1"|upper }}</span>
+    <span class="nome">{{ laudo.paciente }}</span>
+    <span class="apagado">Criado em {{ laudo.criado_em|date:"d/m/Y" }}</span>
+  </div>
+  <nav class="ficha-menu" aria-label="Seções do laudo">
+    <a href="{% url 'laudo' laudo.id %}" {% if not secao %}aria-current="page"{% endif %}>
+      {% include 'laudos/componentes/icone.html' with nome='anamnese' tamanho=16 %}<span>Visão geral</span>
+    </a>
+    {% for s in secoes %}
+      <a href="{% url 'secao' laudo.id s.chave %}" {% if secao.chave == s.chave %}aria-current="page"{% endif %}>
+        <span class="numero-secao">{{ s.chave }}</span>
+        <span class="crescer">{{ s.rotulo }}</span>
+      </a>
+    {% endfor %}
+  </nav>
+</aside>

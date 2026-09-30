@@ -4,12 +4,12 @@
     <span class="distintivo marca">{{ versao.paragrafo.rotulo }}</span>
     <span class="apagado">versão {{ versao.numero }} · {{ versao.get_origem_display }} · {{ versao.palavras }} palavras</span>
   </header>
-  <p class="texto">{{ versao.texto }}</p>
-  {% if versao.curto_demais %}<p class="alerta">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}<span>Parágrafo com menos de {{ minimo }} palavras. Confira se o texto ficou resumido demais.</span></p>{% endif %}
+  <p class="texto">{{ versao.texto|linebreaksbr }}</p>
+  {% if versao.curto_demais %}<p class="alerta">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}<span>Bloco com menos de {{ versao.minimo }} palavras. Confira se o texto ficou resumido demais.</span></p>{% endif %}
   {% if versao.faltou %}<p class="alerta">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}<span>Pode ter ficado de fora: {{ versao.faltou|join:"; " }}</span></p>{% endif %}
-  {% if versao.sem_apoio %}<p class="alerta">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}<span>Sem apoio nas anotações: {{ versao.sem_apoio|join:"; " }}</span></p>{% endif %}
+  {% if versao.sem_apoio %}<p class="alerta">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}<span>Sem apoio no material do caso: {{ versao.sem_apoio|join:"; " }}</span></p>{% endif %}
   {% if versao.trechos_origem %}
-    <details class="origem"><summary>Trechos das anotações usados</summary><ul>{% for t in versao.trechos_origem %}<li>{{ t }}</li>{% endfor %}</ul></details>
+    <details class="origem"><summary>Trechos do material usados</summary><ul>{% for t in versao.trechos_origem %}<li>{{ t }}</li>{% endfor %}</ul></details>
   {% endif %}
   <footer>
     <button type="button" class="botao fantasma botao-like" data-acao="like" title="Bom exemplo">

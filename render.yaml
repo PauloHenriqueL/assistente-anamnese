@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: assistente-anamnese
+    runtime: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn config.wsgi:application"
+    envVars:
+      # Gerada automaticamente pelo Render.
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "0"
+      # Preencha estas no painel do Render (aba Environment):
+      #   DATABASE_URL              -> connection string do Neon
+      #   DJANGO_ALLOWED_HOSTS      -> ex: assistente-anamnese.onrender.com
+      #   DJANGO_CSRF_TRUSTED_ORIGINS -> ex: https://assistente-anamnese.onrender.com
+      #   IA_PROVEDOR / OPENAI_API_KEY / OPENAI_MODEL (ou GEMINI_*)
+      #   ADMIN_USUARIO / ADMIN_SENHA
+      - key: PYTHON_VERSION
+        value: "3.12.3"
