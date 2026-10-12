@@ -1,12 +1,13 @@
 import json
 
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import Count
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from . import exemplos, secoes, servico
+from . import exemplos, gemini, secoes, servico
 from .extracao import ArquivoInvalido, texto_do_arquivo
 from .models import Avaliacao, Exemplo, Laudo, Versao
 
@@ -72,6 +73,7 @@ def secao(request, laudo_id, chave):
     laudo = _laudo_da_usuaria(request, laudo_id)
     s = _secao(chave)
     mensagens = laudo.mensagens.filter(secao=s.chave).prefetch_related("versoes__paragrafo", "versoes__avaliacoes")
+    pendente = servico.em_andamento(laudo, s.chave)
     paragrafos = [(p, p.versao_atual()) for p in laudo.paragrafos_atuais(s.chave)]
     situacao = {item["secao"].chave: item for item in servico.situacao_das_secoes(laudo)}
     return render(
@@ -86,6 +88,8 @@ def secao(request, laudo_id, chave):
             "mensagens": mensagens,
             "paragrafos": paragrafos,
             "motivos": Avaliacao.MOTIVOS,
+            "pendente": pendente,
+            "modelos": settings.IA_MODELOS,
         },
     )
 
@@ -99,12 +103,22 @@ def _json(request):
 
 @require_POST
 def mensagem(request, laudo_id, chave):
+    """Começa a responder e devolve na hora. A tela acompanha pelo andamento."""
     laudo = _laudo_da_usuaria(request, laudo_id)
     s = _secao(chave)
-    resposta = servico.processar_mensagem(laudo, _json(request).get("texto", ""), s.chave)
-    if resposta.erro:
-        return JsonResponse({"ok": False, "erro": resposta.erro}, status=502)
+    dados = _json(request)
+    escolha = gemini.escolha_valida(dados.get("modelo", ""), dados.get("pensar", True) is not False)
+    if servico.iniciar_mensagem(laudo, dados.get("texto", ""), s.chave, escolha) is None:
+        return JsonResponse(
+            {"ok": False, "erro": "A IA ainda está escrevendo a resposta anterior. Espere ela terminar."}, status=409
+        )
     return JsonResponse({"ok": True})
+
+
+def andamento(request, laudo_id, chave):
+    laudo = _laudo_da_usuaria(request, laudo_id)
+    s = _secao(chave)
+    return JsonResponse({"ok": True, "pendente": servico.em_andamento(laudo, s.chave) is not None})
 
 
 @require_POST

@@ -25,4 +25,7 @@ class Command(BaseCommand):
             for modelo in cliente.models.list():
                 if "generateContent" in (getattr(modelo, "supported_actions", None) or []):
                     self.stdout.write(modelo.name.removeprefix("models/"))
-        self.stdout.write(f"\nProvedor: {gemini.provedor()} · modelo em uso agora: {gemini.modelo()}")
+        self.stdout.write(
+            f"\nProvedor: {gemini.provedor()} · gera com {gemini.modelo()} (pensamento: {gemini.raciocinio() or 'desligado'})"
+            f" · confere com {gemini.modelo(True)} (pensamento: {gemini.raciocinio(True) or 'desligado'})"
+        )

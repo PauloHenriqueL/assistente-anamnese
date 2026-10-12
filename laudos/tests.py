@@ -57,13 +57,55 @@ class FluxoTestes(TestCase):
         self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia. Social: poucos amigos.")
 
     def test_primeira_geracao_cria_paragrafos_ordenados(self):
-        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "sono"), par("novo", "social"))), \
+        # Os temas seguem a ordem da resposta (a das anotações); abertura antes e linhas de dados depois.
+        blocos = resposta(par("novo", "sono"), par("novo", "saude"), par("novo", "gestacao"), par("novo", "social"))
+        with mock.patch.object(gemini, "gerar", return_value=blocos), \
              mock.patch.object(gemini, "verificar", return_value=verificacao()):
             msg = servico.processar_mensagem(self.laudo, "")
         self.assertEqual(msg.erro, "")
-        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["social", "sono"])
-        self.assertEqual(Versao.objects.count(), 2)
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["gestacao", "sono", "social", "saude"])
+        self.assertEqual(Versao.objects.count(), 4)
         self.assertEqual(self.laudo.mensagens.first().texto, servico.PEDIDO_INICIAL)
+        self.assertFalse(self.laudo.mensagens.first().pendente)
+
+    def test_bloco_novo_num_ajuste_vai_para_o_fim_dos_temas(self):
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "sono"), par("novo", "social"), par("novo", "saude"))), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, "")
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "ansiedade", modo="ajuste"))), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, "inclua a ansiedade")
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["sono", "social", "ansiedade", "saude"])
+
+    def test_resposta_com_todos_os_blocos_reorganiza_a_secao(self):
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "sono"), par("novo", "social"))), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, "")
+        sono, social = (Paragrafo.objects.get(tema=t) for t in ("sono", "social"))
+        # Um ajuste que toca todos os blocos não mexe na ordem.
+        invertida = resposta(par(f"P{social.id}", "social", modo="ajuste"), par(f"P{sono.id}", "sono", modo="ajuste"))
+        with mock.patch.object(gemini, "gerar", return_value=invertida), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, "corrija a gramática de tudo")
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["sono", "social"])
+        # Reescrever a seção inteira em modo geracao define a ordem de novo.
+        regerada = resposta(par(f"P{social.id}", "social"), par(f"P{sono.id}", "sono"))
+        with mock.patch.object(gemini, "gerar", return_value=regerada), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, "refaça começando pelo social")
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["social", "sono"])
+
+    def test_falha_inesperada_vira_mensagem_de_erro_e_libera_a_secao(self):
+        with mock.patch.object(gemini, "gerar", side_effect=RuntimeError("quebrou")):
+            msg = servico.processar_mensagem(self.laudo, "")
+        self.assertIn("Algo deu errado", msg.erro)
+        self.assertIsNone(servico.em_andamento(self.laudo, "4.2"))
+
+    def test_secao_fixa_continua_na_ordem_dos_tipos(self):
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "fechamento"), par("novo", "abertura"))), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, "", "5.2")
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais("5.2")], ["abertura", "fechamento"])
 
     def test_problema_da_verificacao_gera_uma_reescrita(self):
         primeira = resposta(par("novo", "sono", texto="curto"))
@@ -243,7 +285,10 @@ class TentativasTestes(TestCase):
         self.assertNotIn("Gemini", str(ctx.exception))
 
 
-@override_settings(IA_PROVEDOR="openai", OPENAI_API_KEY="teste", OPENAI_MODEL="gpt-teste")
+@override_settings(
+    IA_PROVEDOR="openai", OPENAI_API_KEY="teste", OPENAI_MODEL="gpt-teste", OPENAI_MODEL_VERIFICACAO="gpt-confere",
+    OPENAI_RACIOCINIO="medium", OPENAI_RACIOCINIO_VERIFICACAO="low",
+)
 class OpenAITestes(TestCase):
     def _resposta(self, conteudo):
         mensagem = mock.MagicMock(content=conteudo, refusal=None)
@@ -256,10 +301,32 @@ class OpenAITestes(TestCase):
             r = gemini.verificar("sistema", "conteúdo")
         self.assertEqual(r.itens, [])
         kwargs = cliente.chat.completions.parse.call_args.kwargs
-        self.assertEqual(kwargs["model"], "gpt-teste")
+        self.assertEqual(kwargs["model"], "gpt-confere")
+        self.assertEqual(kwargs["reasoning_effort"], "low")
+        self.assertNotIn("temperature", kwargs)
         self.assertIs(kwargs["response_format"], gemini.RespostaVerificacao)
         self.assertEqual(kwargs["messages"][0], {"role": "system", "content": "sistema"})
 
+    def test_geracao_usa_o_modelo_principal_pensando(self):
+        cliente = mock.MagicMock()
+        cliente.chat.completions.parse.return_value = self._resposta('{"mensagem": "", "paragrafos": [], "remover": []}')
+        with mock.patch("openai.OpenAI", return_value=cliente):
+            gemini.gerar("sistema", "conteúdo", "4.2")
+        kwargs = cliente.chat.completions.parse.call_args.kwargs
+        self.assertEqual((kwargs["model"], kwargs["reasoning_effort"]), ("gpt-teste", "medium"))
+        self.assertNotIn("temperature", kwargs)
+
+    @override_settings(OPENAI_RACIOCINIO="")
+    def test_sem_raciocinio_manda_temperatura(self):
+        cliente = mock.MagicMock()
+        cliente.chat.completions.parse.return_value = self._resposta('{"mensagem": "", "paragrafos": [], "remover": []}')
+        with mock.patch("openai.OpenAI", return_value=cliente):
+            gemini.gerar("sistema", "conteúdo", "4.2")
+        kwargs = cliente.chat.completions.parse.call_args.kwargs
+        self.assertIn("temperature", kwargs)
+        self.assertNotIn("reasoning_effort", kwargs)
+
+    @override_settings(OPENAI_RACIOCINIO_VERIFICACAO="")
     def test_modelo_sem_temperatura_tenta_sem_ela(self):
         import httpx
         from openai import BadRequestError
@@ -464,3 +531,246 @@ class SecoesTestes(TestCase):
         for s in secoes.SECOES:
             esquema = to_strict_json_schema(gemini.esquema_resposta(s.chave))
             self.assertEqual(set(esquema["properties"]), {"mensagem", "paragrafos", "remover"})
+
+
+class SegundoPlanoTestes(TestCase):
+    def setUp(self):
+        self.dona = usuaria()
+        self.client.force_login(self.dona)
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia.")
+        self.url = f"/laudos/{self.laudo.id}/secao/4.2/"
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_envio_responde_na_hora_e_roda_numa_thread(self):
+        with mock.patch("threading.Thread") as Thread:
+            r = self.client.post(self.url + "mensagem/", {"texto": ""}, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        msg = self.laudo.mensagens.get()
+        self.assertTrue(msg.pendente)
+        self.assertEqual(Thread.call_args.kwargs["args"], (msg.id,))
+        Thread.return_value.start.assert_called_once()
+        self.assertEqual(self.client.get(self.url + "andamento/").json()["pendente"], True)
+        self.assertContains(self.client.get(self.url), 'data-pendente="1"')
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_segundo_envio_durante_a_geracao_e_recusado(self):
+        Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="gere", pendente=True)
+        with mock.patch("threading.Thread") as Thread:
+            r = self.client.post(self.url + "mensagem/", {"texto": "de novo"}, content_type="application/json")
+        self.assertEqual(r.status_code, 409)
+        Thread.assert_not_called()
+        self.assertEqual(self.laudo.mensagens.count(), 1)
+
+    def test_geracao_interrompida_vira_erro_depois_do_prazo(self):
+        from django.utils import timezone
+
+        velha = Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="gere", pendente=True)
+        Mensagem.objects.filter(id=velha.id).update(criado_em=timezone.now() - servico.PRAZO_DA_GERACAO * 2)
+        self.assertEqual(self.client.get(self.url + "andamento/").json()["pendente"], False)
+        self.assertEqual(self.laudo.mensagens.get(papel=Mensagem.IA).erro, servico.ERRO_INTERROMPIDA)
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_thread_responde_e_libera_a_mensagem(self):
+        msg = Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="gere", pendente=True)
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "sono"))), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()), \
+             mock.patch("django.db.connections.close_all"):
+            servico._responder_em_thread(msg.id)
+        msg.refresh_from_db()
+        self.assertFalse(msg.pendente)
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["sono"])
+
+
+class PerfilEExemplosTestes(TestCase):
+    def test_faixa_e_queixas(self):
+        from . import perfil
+
+        self.assertEqual(perfil.faixa("Idade: 9 anos. A professora relata..."), "crianca")
+        self.assertEqual(perfil.faixa("Trabalha e faz faculdade; a esposa conta..."), "adulto")
+        self.assertEqual(perfil.queixas("Suspeita de TEA e sintomas ansiosos"), ["ansiedade", "tea"])
+
+    def test_estilo_escolhe_seccoes_inteiras_dos_casos_mais_parecidos(self):
+        perfis = {
+            "Criança TDAH": {"faixa": "crianca", "queixas": ["tdah"]},
+            "Adulto TEA": {"faixa": "adulto", "queixas": ["tea"]},
+            "Adulto TEA e ansiedade": {"faixa": "adulto", "queixas": ["ansiedade", "tea"]},
+            "Adulto humor": {"faixa": "adulto", "queixas": ["humor"]},
+            "Criança aprendizagem": {"faixa": "crianca", "queixas": ["aprendizagem"]},
+        }
+        for grupo, p in perfis.items():
+            Exemplo.objects.create(fonte=Exemplo.LAUDO_BASE, secao="4.2", tema="", texto=f"texto {grupo}", grupo=grupo, perfil=p)
+        escolhidos = exemplos.estilo("4.2", {"faixa": "adulto", "queixas": ["tea", "ansiedade"]})
+        self.assertEqual(len(escolhidos), exemplos.MAXIMO_LAUDOS_BASE)
+        self.assertEqual(list(escolhidos)[:2], ["Adulto TEA e ansiedade", "Adulto TEA"])
+        self.assertNotIn("Criança aprendizagem", escolhidos)
+
+    def test_pares_do_gemini_entram_e_a_mesma_faixa_vem_primeiro(self):
+        dona = usuaria()
+        Exemplo.objects.create(fonte=Exemplo.GEMINI, dono=dona, secao="4.2", tema="sono", trecho_origem="n",
+                               texto="adulto", perfil={"faixa": "adulto"})
+        Exemplo.objects.create(fonte=Exemplo.GEMINI, dono=dona, secao="4.2", tema="sono", trecho_origem="n",
+                               texto="criança", perfil={"faixa": "crianca"})
+        Exemplo.objects.create(fonte=Exemplo.GEMINI, dono=dona, secao="4.2", tema="sono", trecho_origem="n",
+                               texto="criança 2", perfil={"faixa": "crianca"})
+        textos = [p["texto"] for p in exemplos.pares(dona, "4.2", ["sono"], "adulto")]
+        self.assertEqual(textos[0], "adulto")
+        self.assertEqual(len(textos), exemplos.POR_TEMA)
+        self.assertEqual(exemplos.pares(usuaria("bia"), "4.2"), [])
+
+    def test_carregar_exemplos_no_formato_novo(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from laudos.management.commands import carregar_exemplos
+
+        dados = {"laudo_01": {"nome": "Laudo 1 (adulto)", "perfil": {"faixa": "adulto", "queixas": ["tea"]},
+                              "secoes": {"4.2": [{"tema": "", "texto": "seção inteira"}], "2": [{"texto": "demanda"}]}}}
+        with tempfile.TemporaryDirectory() as pasta:
+            arquivo = Path(pasta) / "laudos_base.json"
+            arquivo.write_text(json.dumps(dados), encoding="utf-8")
+            with mock.patch.object(carregar_exemplos, "ARQUIVO_REAL", arquivo):
+                call_command("carregar_exemplos", stdout=io.StringIO())
+        ex = Exemplo.objects.get(secao="4.2")
+        self.assertEqual((ex.grupo, ex.texto, ex.perfil["faixa"]), ("Laudo 1 (adulto)", "seção inteira", "adulto"))
+        self.assertEqual(Exemplo.objects.count(), 2)
+
+
+class LaudosBaseTestes(TestCase):
+    def test_secao_e_achada_pelo_titulo_e_nao_pelo_numero(self):
+        from . import laudos_base
+
+        self.assertEqual(laudos_base.secao_do_titulo("4.1 HISTÓRIA CLÍNICA"), "4.2")
+        self.assertIsNone(laudos_base.secao_do_titulo("4.2 OBSERVAÇÕES DO COMPORTAMENTO"))
+        self.assertEqual(laudos_base.secao_do_titulo("2. DESCRIÇÃO DA DEMANDA"), "2")
+        self.assertEqual(laudos_base.secao_do_titulo("6. RECOMENDAÇÕES E ENCAMINHAMENTOS"), "6")
+
+    def test_secoes_divide_a_conclusao_e_ignora_rodape(self):
+        from . import laudos_base
+
+        paginas = [[
+            "2. DESCRIÇÃO DA DEMANDA",
+            "A avaliação foi solicitada pela mãe.",
+            "4.1 HISTÓRIA CLÍNICA",
+            "▪ Gestação/Parto: sem intercorrências.",
+            "▪ Queixas principais: No que se refere ao sono, relata",
+            " insônia desde a infância.",
+            "      Quanto à rotina, menciona atrasos.",
+            "4.2 OBSERVAÇÕES DO COMPORTAMENTO",
+            "Colaborou bem.",
+            "5. CONCLUSÃO",
+            "Com base nos testes, a atenção ficou preservada.",
+            "      Levando-se em conta os critérios diagnósticos do DSM-5-TR, fica estabelecido.",
+            "3 de 18",
+        ]]
+        secoes_ = laudos_base.secoes(paginas)
+        self.assertEqual(secoes_["2"], ["A avaliação foi solicitada pela mãe."])
+        self.assertEqual(secoes_["4.2"], [
+            "- Gestação/Parto: sem intercorrências.",
+            "- Queixas principais: No que se refere ao sono, relata insônia desde a infância.",
+            "Quanto à rotina, menciona atrasos.",
+        ])
+        self.assertEqual(secoes_["5.1"], ["Com base nos testes, a atenção ficou preservada."])
+        self.assertIn("DSM-5-TR", secoes_["5.2"][0])
+        self.assertNotIn("Colaborou", " ".join(sum(secoes_.values(), [])))
+
+    def test_anonimizacao_troca_paciente_familiar_e_profissional(self):
+        from . import laudos_base
+
+        ident = {"nome": "Joana Pereira da Costa", "sexo": "F", "idade": 30}
+        textos = [
+            "Rosa Maria, mãe de Joana, relata que Joana Pereira dorme mal. A adaptação foi considerada boa por Rosa Maria.",
+            "- Profissional que acompanha: Psiquiatra Carlos Alberto Souza – CRM 12345 (cerca de 2 anos).",
+        ]
+        anonimos, trocas = laudos_base.anonimizar(textos, ident, "Helena")
+        self.assertEqual(anonimos[0], "A mãe relata que Helena dorme mal. A adaptação foi considerada boa pela mãe.")
+        self.assertEqual(anonimos[1], "- Profissional que acompanha: Psiquiatra (cerca de 2 anos).")
+        for nome in ("Joana", "Rosa", "Carlos", "12345"):
+            self.assertNotIn(nome, " ".join(anonimos))
+
+    def test_paciente_nao_vira_parente_por_aposto(self):
+        from . import laudos_base
+
+        ident = {"nome": "Pedro Alves", "sexo": "M", "idade": 30}
+        anonimos, _ = laudos_base.anonimizar(["Segundo o irmão, Pedro dorme mal. Pedro estuda."], ident, "Bruno")
+        self.assertEqual(anonimos[0], "Segundo o irmão, Bruno dorme mal. Bruno estuda.")
+
+
+class ImportarGeminiTestes(TestCase):
+    def test_importa_so_os_aprovados_na_revisao_e_e_idempotente(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        dona = usuaria()
+        linhas = [
+            {"id": "c1", "secao": "4.2", "tema": "sono", "faixa": "adulto", "texto": "Texto bom.", "trecho_origem": "nota", "decisao": "manter"},
+            {"id": "c2", "secao": "6", "tema": "psicologia", "faixa": "crianca", "texto": "Outro.", "trecho_origem": "", "decisao": "corrigir"},
+            {"id": "c3", "secao": "4.2", "tema": "sono", "faixa": "adulto", "texto": "Ruim.", "trecho_origem": "x", "decisao": "descartar"},
+        ]
+        with tempfile.TemporaryDirectory() as pasta:
+            arquivo = Path(pasta) / "revisados.jsonl"
+            arquivo.write_text("\n".join(json.dumps(l) for l in linhas), encoding="utf-8")
+            for _ in range(2):
+                call_command("importar_gemini", str(arquivo), usuario="ana", stdout=io.StringIO())
+        self.assertEqual(sorted(Exemplo.objects.values_list("grupo", flat=True)), ["c1", "c2"])
+        self.assertEqual(exemplos.pares(dona, "4.2", ["sono"], "adulto")[0]["texto"], "Texto bom.")
+
+
+class EscolhaDoModeloTestes(TestCase):
+    def setUp(self):
+        self.dona = usuaria()
+        self.client.force_login(self.dona)
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia.")
+        self.url = f"/laudos/{self.laudo.id}/secao/4.2/"
+
+    @override_settings(IA_MODELOS=[("gpt-6-sol", "Melhor"), ("gpt-6-luna", "Barato")], OPENAI_RACIOCINIO="medium")
+    def test_tela_mostra_os_modelos_e_a_escolha_chega_na_ia(self):
+        self.assertContains(self.client.get(self.url), '<option value="gpt-6-luna">')
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "sono"))) as gerar, \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            r = self.client.post(self.url + "mensagem/", {"texto": "", "modelo": "gpt-6-luna", "pensar": False},
+                                 content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(gerar.call_args.args[3], ("gpt-6-luna", "none"))
+        ia = self.laudo.mensagens.get(papel=Mensagem.IA)
+        self.assertEqual(ia.modelo, "gpt-6-luna, sem pensar")
+        self.assertContains(self.client.get(self.url), "Escrito com gpt-6-luna, sem pensar")
+
+    @override_settings(IA_MODELOS=[("gpt-6-sol", "Melhor")], OPENAI_RACIOCINIO="high")
+    def test_modelo_fora_da_lista_cai_no_padrao(self):
+        self.assertEqual(gemini.escolha_valida("gpt-qualquer", True), ("", "high"))
+        self.assertEqual(gemini.escolha_valida("gpt-6-sol", False), ("gpt-6-sol", "none"))
+
+    @override_settings(IA_PROVEDOR="openai", OPENAI_API_KEY="teste", OPENAI_MODEL="gpt-4o-mini", OPENAI_RACIOCINIO="medium")
+    def test_modelo_sem_raciocinio_tenta_de_novo_com_temperatura(self):
+        import httpx
+        from openai import BadRequestError
+
+        erro = BadRequestError("Unsupported parameter: 'reasoning_effort'",
+                               response=httpx.Response(400, request=httpx.Request("POST", "http://x")), body=None)
+        ok = mock.MagicMock(choices=[mock.MagicMock(message=mock.MagicMock(
+            content='{"mensagem": "", "paragrafos": [], "remover": []}', refusal=None))])
+        cliente = mock.MagicMock()
+        cliente.chat.completions.parse.side_effect = [erro, ok]
+        with mock.patch("openai.OpenAI", return_value=cliente):
+            gemini.gerar("s", "c", "4.2")
+        kwargs = cliente.chat.completions.parse.call_args.kwargs
+        self.assertIn("temperature", kwargs)
+        self.assertNotIn("reasoning_effort", kwargs)
+
+    def test_resposta_que_chega_depois_do_prazo_e_descartada(self):
+        msg = Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="gere", pendente=True)
+        Mensagem.objects.filter(id=msg.id).update(pendente=False)  # o prazo venceu e a tela já mostrou o erro
+        with mock.patch.object(gemini, "gerar", return_value=resposta(par("novo", "sono"))), \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            self.assertIsNone(servico.responder(msg))
+        self.assertEqual(Paragrafo.objects.count(), 0)
+
+    def test_pendencia_vencida_gera_um_erro_so(self):
+        from django.utils import timezone
+
+        velha = Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="gere", pendente=True)
+        Mensagem.objects.filter(id=velha.id).update(criado_em=timezone.now() - servico.PRAZO_DA_GERACAO * 2)
+        servico.em_andamento(self.laudo, "4.2")
+        servico.em_andamento(self.laudo, "4.2")
+        self.assertEqual(self.laudo.mensagens.filter(erro=servico.ERRO_INTERROMPIDA).count(), 1)

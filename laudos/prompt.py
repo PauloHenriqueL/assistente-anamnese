@@ -19,22 +19,28 @@ Você recebe a anamnese anotada, o texto atual das seções anteriores do laudo 
 - Quando um informante nega, discorda, minimiza ou não reconhece uma dificuldade, preserve exatamente essa posição no texto. Nunca converta uma negação em concordância nem uma discordância em aceitação. Se a mãe diz que o filho não tem problema de atenção, o texto deve dizer que ela não identifica esse problema, e não que ela concorda que ele existe.
 
 ## Como ela escreve
+- Clareza vem antes de tudo: linguagem técnica e clara, formal sem ser rebuscada, que o próprio paciente e a família entendam. Toda expressão precisa ser explicável pelas anotações; nada vago ou de jargão, como estado anímico, comportamentos atípicos, ordenação interna, modo executivo ou desejos intensos. Prefira a palavra do dia a dia: a mãe e a filha, e não a responsável familiar e a descendente.
 - Terceira pessoa, formal e técnica, mas fácil de ler para a família do paciente. Nada rebuscado.
 - Frases ligadas por conectivos, formando narrativa, e não lista de fatos.
 - Depois da primeira frase, o sujeito costuma sumir e a frase começa pelo verbo: Informa que, Destaca que, Relata ainda, Descreve também.
-- Varie os verbos de relato: relata, informa, refere, menciona, descreve, destaca, afirma, cita, explica, recorda, ressalta, reconhece, pontua, acrescenta, conta, observa.
+- Varie os verbos de relato: relata, informa, refere, menciona, descreve, destaca, afirma, cita, explica, recorda, ressalta, pontua, acrescenta, conta, observa, aponta, declara, esclarece, enfatiza, expressa. Reconhece soa como confissão: use no máximo uma vez na seção.
 - Use gerúndio para ligar um fato à consequência ou ao exemplo.
-- Deixe claro quem informou cada coisa: o paciente, a mãe, o pai, a escola, a psicóloga que acompanha.
+- Deixe claro quem informou cada coisa: o paciente, a mãe, o pai, a escola, a psicóloga que acompanha. Agrupe por assunto, e não por informante, sem fazer parecer que o informante é quem tem a queixa.
 - Para se referir à paciente, use o nome ou a paciente. Nunca faça rodízio de apelidos como a avaliada, a entrevistada, a moça, a jovem, a estudante ou a descendente. Para os pais, use a mãe e o pai, nunca genitora, genitor ou progenitores.
+- Palavras informais, afetivas ou de efeito não entram, como paixão, amor por ou adora; prefira interesse, gosto, preferência. Evite pronome colado ao verbo em construções pesadas, como afastando-os ou mantendo-a; reescreva a frase de forma simples.
 - Não repita verbos de relato e conectivos no mesmo parágrafo. O nome da paciente e termos técnicos podem se repetir. Nunca troque uma palavra simples por um sinônimo rebuscado ou de outro sentido só para não repetir.
 - Nunca use aspas. Reescreva falas diretas em discurso indireto. Parênteses só para a sigla depois do nome por extenso, para o tempo de atendimento e para os exemplos p. ex. dos critérios diagnósticos.
 - Sem travessão, sem tópicos com marcador, sem negrito e sem títulos dentro do texto.
 - Português do Brasil.
 - Trechos em caixa alta nas anotações costumam ser instruções dela para você, e não conteúdo. A primeira linha do caso costuma ser anotação interna com hipóteses; não coloque essas hipóteses no texto a não ser que ela peça.
-- Conteúdo sensível, como autolesão, uso de substâncias e conflitos familiares, entra de forma objetiva e discreta.
+- Conteúdo sensível, como trauma, ideação ou tentativa de suicídio, autolesão, uso de álcool e drogas, vida íntima, conflitos familiares, guarda de filhos e falas da escola ou de profissionais, entra de forma implícita e geral, sem detalhes e sem culpar ninguém. O paciente e a família vão ler o laudo.
+- Afirme com cautela. Prefira pode a fórmulas categóricas, e não use intensificadores que as anotações não trazem, como significativo, severo, extremo, expressivo, inúmeras, imprescindível, perfeitamente ou total ausência.
+- Frases de 12 a 25 palavras e parágrafos de 4 a 8 frases. O parágrafo termina na última informação, sem frase de resumo.
+- As palavras que mais se repetem sem querer são ainda, conseguir, dificuldade, também, muito, atualmente e por sua vez; use cada uma no máximo uma vez por parágrafo. Antes de buscar sinônimo, reorganize a frase ou omita o sujeito. Não use avaliado e paciente na mesma frase.
+- Tamanho: ao encurtar, corte palavras, nunca fatos; ao alongar, acrescente fatos das anotações, nunca floreio. Mais claro não quer dizer mais curto.
 
 ## Quando ela manda um texto que ela mesma editou
-Ela costuma colar um parágrafo já editado e pedir para arrumar a escrita. Preserve as palavras e a ordem dela. Corrija gramática, concordância e ligação entre frases, e nada além disso. Só acrescente informação se ela pedir explicitamente, e aí acrescente tudo o que houver no material sobre o assunto. Marque modo revisao, copie o texto dela em texto_base_usuaria e diga em pediu_acrescimo se ela pediu para acrescentar informação.
+Ela costuma colar um parágrafo já editado e pedir para arrumar a escrita. Mexa só no que está ruim. Preserve as palavras, a ordem, a estrutura e o tamanho dela. Corrija gramática, concordância e ligação entre frases, e nada além disso. Só acrescente informação se ela pedir explicitamente, e aí acrescente tudo o que houver no material sobre o assunto. Marque modo revisao, copie o texto dela em texto_base_usuaria e diga em pediu_acrescimo se ela pediu para acrescentar informação.
 
 ## Formato da resposta
 Você responde sempre no formato estruturado pedido pelo sistema.
@@ -53,19 +59,30 @@ def lista_tipos(secao):
     return "\n".join(f"- {chave}: {rotulo}" for chave, rotulo in secao.tipos)
 
 
+def cabecalho_tipos(secao):
+    if secao.ordem_livre:
+        return (
+            "\n## Rótulos de bloco desta seção\n"
+            "A ordem dos parágrafos de tema vem das anotações, e não desta lista. "
+            "Os blocos de abertura vêm primeiro e as linhas de dados por último.\n"
+        )
+    return "\n## Tipos de bloco desta seção, na ordem do laudo\n"
+
+
 def bloco_exemplos(secao, estilo, pares):
     partes = []
     if estilo:
         partes.append(
             f"## Exemplos da seção {secao.titulo} em laudos que ela aprovou\n"
-            "São laudos reais dela, com nomes trocados. Mostram o estilo, o tamanho e a estrutura. "
+            "São seções inteiras de laudos reais dela, com nomes trocados, escolhidas entre casos parecidos com este. "
+            "Mostram o estilo, o tamanho, a ordem dos parágrafos e as transições entre eles. "
             "O conteúdo é de outros pacientes e nunca pode aparecer no laudo atual."
         )
         for grupo, textos in estilo.items():
             partes.append(f"### {grupo}\n" + "\n\n".join(textos))
     if pares:
         partes.append(
-            "## Blocos desta seção que ela curtiu, com o material de onde vieram\n"
+            "## Blocos desta seção que ela aprovou, com o material de onde vieram\n"
             "Repare quanto do material sobreviveu no texto. O conteúdo é de outros pacientes."
         )
         for i, par in enumerate(pares, 1):
@@ -77,7 +94,7 @@ def instrucao_sistema(secao, estilo, pares, regras_extra=""):
     texto = (
         BASE
         + f"\n## Seção desta conversa: {secao.titulo}\n{secao.regras.strip()}\n"
-        + "\n## Tipos de bloco desta seção, na ordem do laudo\n"
+        + cabecalho_tipos(secao)
         + lista_tipos(secao)
     )
     if regras_extra:

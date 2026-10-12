@@ -65,11 +65,30 @@ def provedor():
     return (settings.IA_PROVEDOR or "gemini").strip().lower()
 
 
-def modelo():
-    return settings.OPENAI_MODEL if provedor() == "openai" else settings.GEMINI_MODEL
+def modelo(verificacao=False):
+    if provedor() != "openai":
+        return settings.GEMINI_MODEL
+    return settings.OPENAI_MODEL_VERIFICACAO if verificacao else settings.OPENAI_MODEL
 
 
-def _chamar_gemini(sistema, conteudo, esquema, temperatura):
+def raciocinio(verificacao=False):
+    """Esforço de raciocínio da OpenAI para a etapa. Vazio = modelo sem raciocínio."""
+    valor = settings.OPENAI_RACIOCINIO_VERIFICACAO if verificacao else settings.OPENAI_RACIOCINIO
+    return (valor or "").strip().lower()
+
+
+def escolha_valida(modelo_pedido, pensar):
+    """Modelo e esforço de raciocínio escolhidos na tela, só entre os permitidos em IA_MODELOS.
+
+    Devolve (modelo, raciocínio); vazio no modelo quer dizer usar o padrão do .env.
+    Pensamento desligado vira "none", que os modelos de raciocínio aceitam.
+    """
+    permitidos = {m for m, _ in settings.IA_MODELOS}
+    modelo_escolhido = modelo_pedido if modelo_pedido in permitidos else ""
+    return modelo_escolhido, (raciocinio() or "medium") if pensar else "none"
+
+
+def _chamar_gemini(sistema, conteudo, esquema, temperatura, verificacao, escolha=None):
     from google import genai
     from google.genai import types
 
@@ -79,31 +98,37 @@ def _chamar_gemini(sistema, conteudo, esquema, temperatura):
         response_mime_type="application/json",
         response_schema=esquema,
         temperature=temperatura,
+        http_options=types.HttpOptions(timeout=settings.IA_TIMEOUT * 1000),  # em milissegundos
     )
-    return cliente.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=conteudo,
-        config=config,
-        request_options=types.RequestOptions(timeout=180),
-    ).text
+    return cliente.models.generate_content(model=settings.GEMINI_MODEL, contents=conteudo, config=config).text
 
 
-def _chamar_openai(sistema, conteudo, esquema, temperatura):
+def _chamar_openai(sistema, conteudo, esquema, temperatura, verificacao, escolha=None):
     from openai import BadRequestError, OpenAI
 
-    cliente = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=180.0)
+    # Sem retries do SDK: as tentativas são as de `chamar`, o que limita o tempo total da geração.
+    cliente = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=float(settings.IA_TIMEOUT), max_retries=0)
+    modelo_escolhido, esforco = escolha or ("", raciocinio(verificacao))
     pedido = dict(
-        model=settings.OPENAI_MODEL,
+        model=modelo_escolhido or modelo(verificacao),
         messages=[{"role": "system", "content": sistema}, {"role": "user", "content": conteudo}],
         response_format=esquema,
     )
     try:
-        resposta = cliente.chat.completions.parse(temperature=temperatura, **pedido)
+        if esforco:
+            # Modelos de raciocínio não aceitam temperatura: o "modo de pensar" substitui.
+            resposta = cliente.chat.completions.parse(reasoning_effort=esforco, **pedido)
+        else:
+            resposta = cliente.chat.completions.parse(temperature=temperatura, **pedido)
     except BadRequestError as erro:
-        # Modelos de raciocínio da OpenAI não aceitam temperatura; tenta sem ela.
-        if "temperature" not in str(erro):
+        # Modelo sem raciocínio que recebeu reasoning_effort, ou de raciocínio que recebeu temperatura.
+        texto = str(erro)
+        if "reasoning" in texto:
+            resposta = cliente.chat.completions.parse(temperature=temperatura, **pedido)
+        elif "temperature" in texto:
+            resposta = cliente.chat.completions.parse(**pedido)
+        else:
             raise
-        resposta = cliente.chat.completions.parse(**pedido)
     mensagem = resposta.choices[0].message
     if getattr(mensagem, "refusal", None):
         raise ErroGemini("A IA se recusou a responder a este pedido. Tente reformular a mensagem.")
@@ -131,14 +156,14 @@ def _classificar(erro):
     return sem_cota, passageiro and not sem_cota
 
 
-def chamar(sistema, conteudo, esquema, temperatura):
+def chamar(sistema, conteudo, esquema, temperatura, verificacao=False, escolha=None):
     falta = _sem_chave()
     if falta:
         raise ErroGemini(falta)
     chamada = _chamar_openai if provedor() == "openai" else _chamar_gemini
     for tentativa, espera in enumerate(ESPERAS + [None], 1):
         try:
-            texto = chamada(sistema, conteudo, esquema, temperatura)
+            texto = chamada(sistema, conteudo, esquema, temperatura, verificacao, escolha)
             break
         except ErroGemini:
             raise
@@ -147,7 +172,7 @@ def chamar(sistema, conteudo, esquema, temperatura):
             if passageiro and espera is not None:
                 time.sleep(espera)
                 continue
-            logger.error("Falha na chamada à IA (%s, %s): %s", provedor(), modelo(), erro)
+            logger.error("Falha na chamada à IA (%s, %s): %s", provedor(), modelo(verificacao), erro)
             raise ErroGemini(_mensagem_de_erro(str(erro), sem_cota, passageiro, tentativa)) from erro
     if not texto:
         raise ErroGemini("A IA devolveu uma resposta vazia. Tente enviar a mensagem de novo.")
@@ -183,10 +208,13 @@ def esquema_resposta(chave_secao):
     return create_model(f"Resposta{nome}", mensagem=(str, ...), paragrafos=(list[Paragrafo], ...), remover=(list[str], ...))
 
 
-def gerar(sistema, conteudo, chave_secao="4.2"):
-    especifica = chamar(sistema, conteudo, esquema_resposta(chave_secao), temperatura=settings.GEMINI_TEMPERATURA)
+def gerar(sistema, conteudo, chave_secao="4.2", escolha=None):
+    """`escolha` = (modelo, raciocínio) vindos da tela; None usa o padrão do .env."""
+    especifica = chamar(
+        sistema, conteudo, esquema_resposta(chave_secao), temperatura=settings.GEMINI_TEMPERATURA, escolha=escolha
+    )
     return RespostaIA.model_validate(especifica.model_dump(mode="json"))
 
 
 def verificar(sistema, conteudo):
-    return chamar(sistema, conteudo, RespostaVerificacao, temperatura=0.0)
+    return chamar(sistema, conteudo, RespostaVerificacao, temperatura=0.0, verificacao=True)

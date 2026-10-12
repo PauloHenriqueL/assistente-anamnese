@@ -15,7 +15,8 @@ services:
       #   DATABASE_URL              -> connection string do Neon
       #   DJANGO_ALLOWED_HOSTS      -> ex: assistente-anamnese.onrender.com
       #   DJANGO_CSRF_TRUSTED_ORIGINS -> ex: https://assistente-anamnese.onrender.com
-      #   IA_PROVEDOR / OPENAI_API_KEY / OPENAI_MODEL (ou GEMINI_*)
+      #   IA_PROVEDOR / OPENAI_API_KEY / OPENAI_MODEL / OPENAI_MODEL_VERIFICACAO
+      #   OPENAI_RACIOCINIO / OPENAI_RACIOCINIO_VERIFICACAO / IA_MODELOS (ou GEMINI_*)
       #   ADMIN_USUARIO / ADMIN_SENHA
       - key: PYTHON_VERSION
         value: "3.12.3"

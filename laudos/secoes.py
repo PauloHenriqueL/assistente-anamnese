@@ -24,6 +24,11 @@ class Secao:
     pedido_inicial: str = ""
     regras: str = ""
     regras_verificacao: str = ""
+    # Ordem livre: os blocos do meio seguem a ordem em que a IA os escreveu (a das anotações).
+    # Os de abertura vêm antes e os finais depois, na ordem da lista de tipos.
+    ordem_livre: bool = False
+    tipos_abertura: frozenset = frozenset()
+    tipos_finais: frozenset = frozenset()
 
     @property
     def chaves_tipos(self):
@@ -32,6 +37,16 @@ class Secao:
     @property
     def ordem_tipos(self):
         return {chave: i for i, chave in enumerate(self.chaves_tipos)}
+
+    def chave_ordem(self, tipo, posicao, ident):
+        ordem = self.ordem_tipos.get(tipo, 99)
+        if not self.ordem_livre:
+            return (0, ordem, posicao, ident)
+        if tipo in self.tipos_abertura:
+            return (0, ordem, posicao, ident)
+        if tipo in self.tipos_finais:
+            return (2, ordem, posicao, ident)
+        return (1, 0, posicao, ident)
 
     def rotulo_tipo(self, tipo):
         return dict(self.tipos).get(tipo, tipo)
@@ -47,7 +62,8 @@ DEMANDA = Secao(
     pedido_inicial="Escreva a descrição da demanda a partir da anamnese.",
     regras="""
 Esta seção é um parágrafo único, de três a seis frases. Diga quem solicitou a avaliação, o motivo, o que se busca investigar, diagnósticos ou tratamentos anteriores e o que o paciente ou a família espera entender. A fonte é a queixa registrada na anamnese.
-Abra com A avaliação neuropsicológica foi solicitada por, seguido de quem pediu. Se ela disser na conversa quem solicitou, use exatamente isso.
+Abra com A avaliação neuropsicológica foi solicitada pelo ou pela, seguido de quem pediu. Se ela disser na conversa quem solicitou, use exatamente isso. Quem lê precisa entender quem pediu, por quê e para quem. Se for reavaliação, diga logo no início.
+Seja curta, geral e ampla: as queixas principais, sem esmiuçar. Não use como auxílio diagnóstico nem busca compreender a origem. A queixa é do paciente; não faça parecer que é da mãe ou de quem encaminhou.
 Não escreva hipóteses diagnósticas que estão só na anotação interna da psicóloga. Só cite suspeitas ou diagnósticos que aparecem na queixa do paciente, da família ou de quem encaminhou.
 Em criança, quem relata costuma ser a mãe ou o pai; atribua a queixa a quem a trouxe.
 """,
@@ -58,23 +74,49 @@ ANAMNESE = Secao(
     chave="4.2",
     titulo="4.2 DADOS DA ENTREVISTA DE ANAMNESE",
     rotulo="Dados da entrevista de anamnese",
-    descricao="Um parágrafo por tema, na ordem do laudo, e as linhas de dados no fim.",
+    descricao="Abertura com gestação, desenvolvimento e escola, os temas na ordem das suas anotações e as linhas de dados no fim.",
     tipos=temas.TEMAS,
     conferir_faltou=True,
     minimo_palavras=temas.MINIMO_PALAVRAS,
-    sem_minimo=frozenset(temas.LINHAS_DE_DADOS),
-    pedido_inicial="Gere a seção 4.2 completa a partir da anamnese, com um parágrafo por tema e as quatro linhas de dados no fim.",
+    sem_minimo=temas.LINHAS_DE_DADOS | temas.CHAVES_ABERTURA,
+    ordem_livre=True,
+    tipos_abertura=temas.CHAVES_ABERTURA,
+    tipos_finais=temas.LINHAS_DE_DADOS,
+    pedido_inicial="Gere a seção completa a partir da anamnese, com os temas na ordem das minhas anotações e as linhas de dados no fim.",
     regras="""
-O que ela mais reclama nesta seção:
-1. Parágrafos curtos, que perdem a complexidade do caso. Cada parágrafo carrega todas as informações que as anotações trazem sobre o tema, com os exemplos concretos. Nos laudos dela, um parágrafo de tema tem entre 90 e 200 palavras. Não encha linguiça: o tamanho vem do conteúdo das anotações.
-2. Informação cortada. Tudo o que está nas anotações aparece em algum parágrafo, a não ser que ela peça para tirar ou marque como pessoal.
-3. Pontos jogados sem ligação. Ligue as frases com conectivos para formar uma narrativa.
-4. Falta de ordem. Dentro de cada parágrafo, siga a linha do tempo: infância, adolescência, fase adulta e, por último, como é atualmente.
+Estrutura da seção, como nos laudos dela:
+1. Abertura, só com o que o material trouxer, em geral do formulário respondido pela mãe: um bloco - Gestação/Parto:, um - Marcos do Desenvolvimento: e um - Percurso Escolar:, cada um começando pelo rótulo e dizendo quem informou (Conforme relato materno, De acordo com a mãe). Sem material, o bloco não existe.
+2. Queixas principais: os parágrafos de tema. O primeiro parágrafo de tema começa com - Queixas principais: seguido do texto.
+3. As quatro linhas de dados no fim.
 
-Cada parágrafo abre anunciando o tema, e as aberturas variam: No que se refere a, Em relação a, Quanto a, No que tange a, No que concerne a, Referente a, No âmbito de, Acerca de, Sobre. O último parágrafo de tema costuma abrir com Por fim.
+Ordem e agrupamento dos parágrafos de tema, o que ela mais cobra:
+- Ela já separa as anotações por tema, com títulos como Estudos:, Social: ou Ansiedade:. Cada título que é um tema de verdade vira um parágrafo, e os parágrafos seguem a ordem em que esses títulos aparecem nas anotações. Devolva os blocos exatamente nessa ordem.
+- Um título que é só um aspecto de outro tema, como Ironia e piadas dentro da socialização, não vira parágrafo próprio: entra no parágrafo do tema a que pertence, no ponto da linha do tempo em que se encaixa.
+- Um título transversal, como Impacto funcional e prejuízos, tem o conteúdo distribuído pelos parágrafos dos temas a que cada item pertence.
+- Uma informação anotada perto de um tema, mas que trata de outro, vai para o parágrafo do outro tema. Dificuldade de comunicação anotada junto da ansiedade, por exemplo, vai para a socialização.
+- Sem títulos nas anotações, comece pelo tema da queixa principal, o motivo da avaliação, e siga pelos temas mais ligados a ela.
+- Temas curtos e ligados podem dividir um parágrafo, como trajetória acadêmica e interesses. Um tema pequeno no fim pode fechar o último parágrafo, como Por fim, sobre o sono, ...
+- O tipo de cada bloco é só um rótulo: escolha o mais próximo da lista, ou outro.
+
+Anamnese é só relato: escreva o que o paciente ou o informante contou, como relato dele. Nunca na voz da avaliadora nem com interpretação, como A investigação revela, o que sugere, o que evidencia ou o que reflete.
+Quando ela disser na conversa quais diagnósticos vai fechar ou descartar, calibre a ênfase sem distorcer: o tema que sustenta um diagnóstico fechado traz todos os exemplos com clareza; para uma hipótese que não vai fechar, inclua também o que as anotações trazem contra ela e não carregue nos relatos que a sugerem.
+
+Dentro de cada parágrafo:
+- Um tema por parágrafo. Não salte de assunto a cada frase: tudo o que as anotações dizem sobre aquele tema fica junto.
+- Siga a linha do tempo e sinalize as épocas: infância, adolescência, faculdade ou concurso, fase adulta e, por último, como é atualmente.
+- Não omita nada das anotações sobre o tema, com os exemplos concretos. Seja objetivo na forma, mas completo no conteúdo: ela precisa do material para fechar o diagnóstico. Nos laudos dela, um parágrafo de tema tem entre 90 e 200 palavras; o tamanho vem do conteúdo, sem encher linguiça.
+- Cada frase continua a anterior. Ao trazer uma informação nova, faça a transição com Além disso, Adicionalmente, Somado a isso ou Ademais. Nunca jogue um fato solto no fim do parágrafo.
+
+Cada parágrafo de tema abre anunciando o tema, e as aberturas variam: No que se refere a, Em relação a, Quanto a, No que tange a, No que concerne a, Acerca de, Sobre. O último costuma abrir com Por fim.
+Os verbos de relato também variam de um parágrafo para o outro; nenhum verbo abre frases em parágrafos seguidos.
 
 A seção termina com quatro linhas curtas, cada uma começando pelo rótulo: - Saúde:, - Uso de Medicação:, - Histórico Familiar: e - Profissional que acompanha:. Medicamentos e doses ficam como nas anotações. Familiares aparecem pelo parentesco.
 """,
+    regras_verificacao=(
+        "Os rótulos - Gestação/Parto:, - Marcos do Desenvolvimento:, - Percurso Escolar: e - Queixas principais: são "
+        "estrutura do laudo e não precisam de apoio. Uma informação conta como presente se aparece em qualquer bloco da "
+        "seção, mesmo que num tema diferente do título das anotações."
+    ),
 )
 
 RELACAO = Secao(
@@ -101,6 +143,8 @@ Sequência dos laudos dela:
 3. Consonâncias: quando teste e relato apontam na mesma direção, descreva o prejuízo com o exemplo da rotina.
 4. Aspectos comportamentais e emocionais: o que as escalas e entrevistas apontaram.
 5. Aspectos sociais, quando houver, abrindo com Por fim ou Em relação às interações sociais.
+Moldes que ela usa: Sendo assim, ainda que [nome] tenha apresentado desempenho satisfatório em [função], seus relatos indicam [exemplo]; Do mesmo modo, embora...; Além disso, embora tenha obtido desempenho reduzido em [função], esse resultado isolado não indica necessariamente déficit, considerando fatores ambientais, emocionais ou situacionais; Em consonância com os resultados dos testes e relatos, observou-se prejuízo em...; Embora não avaliado por instrumento específico, é possível notar...; Do ponto de vista comportamental e emocional, a partir das escalas e entrevistas realizadas, foi possível perceber... Em relação ao âmbito social...
+A relação entre teste e vida fica explícita em cada função. A parte comportamental, emocional e social é curta e ampla. Sem diagnóstico fechado, não faça parecer que há muitos problemas. Ao explicar um resultado ruim, ancore no que está na anamnese, como sono ruim ou cansaço no dia, sem inventar.
 Use só os nomes de testes, escores e classificações que ela informou. Nunca invente resultado.
 """,
     regras_verificacao="Os resultados de testes vêm das mensagens da psicóloga nesta seção. A frase geral sobre a validade ecológica dos testes é padrão do laudo e não precisa de apoio.",
@@ -130,7 +174,8 @@ Estrutura dos laudos dela:
 - Um parágrafo por diagnóstico ou hipótese: o nome do transtorno, a especificação quando houver, os códigos do DSM-5-TR e da CID-11, a definição do DSM-5-TR e a frase Durante a avaliação de [nome], foi possível analisar manifestações compatíveis com esse perfil, incluindo:, seguida dos critérios. Cada critério leva um exemplo do próprio caso entre parênteses, começando com p. ex. Os critérios ficam na mesma frase, separados por ponto e vírgula. Os exemplos mostram como o sintoma aparece na vida do paciente; números de teste não entram neles. Critério sem exemplo no material não ganha exemplo inventado.
 - O segundo diagnóstico em diante pode abrir com Concomitantemente ou Do mesmo modo.
 - Quando ela disser que não há segurança para fechar o diagnóstico, escreva como hipótese e explique os fatores que impedem o fechamento, como fez em laudos anteriores.
-- Um parágrafo por hipótese descartada, abrindo com A hipótese de... não se sustenta ou Descarta-se a hipótese de..., explicando com os dados do caso por que os sinais são mais bem explicados por outra condição. O argumento mais forte fica por último.
+- Um parágrafo por hipótese descartada. Diga logo no início que a hipótese não se sustenta, mesmo com os sintomas presentes (Embora apresente..., não é possível fechar o diagnóstico de..., ou A hipótese de... não se sustenta), e só depois explique. Use os sintomas da anamnese, não genéricos, cite a escala que deu resultado clínico se houver, e explique o mecanismo: por que outra condição explica melhor os sinais. Não carregue tanto nos sintomas que pareça que o paciente tem o transtorno. O argumento mais forte fica por último. Tamanho médio, claro e firme, sem soar acusatório: o paciente vai ler.
+- Sintoma que não fecha diagnóstico é manifestação secundária, e não comorbidade, palavra reservada a diagnóstico fechado.
 - Fechamento: o diagnóstico como processo dinâmico, o acompanhamento da evolução e, se ela indicar, a reavaliação em um prazo.
 Use os códigos que ela informar. Se não informar, use o código que você considera correto e peça conferência na mensagem.
 """,
@@ -164,8 +209,9 @@ Cada encaminhamento é um bloco que abre com o rótulo da área seguido de dois-
 - Psiquiatria usa o texto padrão: Sugere-se o acompanhamento psiquiátrico para definição das estratégias terapêuticas sob competência desta especialidade. A interlocução entre as áreas é fundamental para subsidiar decisões e a análise sobre o manejo farmacológico.
 - Psicologia: frase de abertura com continuidade do acompanhamento psicoterapêutico, se o paciente já faz terapia, ou início, se não faz, com a abordagem que ela indicar, terminando em dois-pontos. Depois, de quatro a seis focos de intervenção, cada um numa linha própria do mesmo bloco, ligados às dificuldades deste paciente. Cada foco começa com um substantivo de ação diferente, como Fortalecimento, Estratégias voltadas ao aprimoramento, Implementação de recursos, Desenvolvimento de técnicas, Exploração e consolidação ou Adoção de técnicas direcionadas, seguido do objetivo, com o objetivo de, visando ou com o intuito de. Cada foco termina com ponto e vírgula, e o último com ponto. Os focos saem das dificuldades descritas nas seções 4.2, 5.1 e 5.2.
 - Outras áreas, como neuropediatria, psicopedagogia, fonoaudiologia, terapia ocupacional ou professora particular, só quando ela pedir ou quando as seções anteriores indicarem claramente a necessidade; nesse caso, pergunte na mensagem antes de incluir.
-- Escola, em criança e adolescente: orientações práticas em linhas próprias, cada uma com um título curto seguido de dois-pontos, como Posicionamento estratégico: ou Adaptação em avaliações:.
-- Atividades do dia a dia, quando ela pedir: ações concretas e viáveis que o paciente consegue fazer sozinho, no mesmo formato dos focos da psicologia.
+- Escola, em criança e adolescente: orientações práticas em linhas próprias, cada uma com um título curto seguido de dois-pontos, como Posicionamento estratégico: ou Adaptação em avaliações:. Só estratégias simples, viáveis e que a escola consegue aplicar, sem facilitar demais.
+- Sugestões para o dia a dia, quando ela pedir: ações concretas e viáveis que o próprio paciente ou a família faz, diferentes dos focos da psicologia, no tema que ela indicar.
+- Os focos e sugestões saem das dificuldades relatadas neste caso. Nenhum item pode contradizer a conclusão.
 - Reavaliação: Recomenda-se o acompanhamento longitudinal e a atualização desta avaliação em [prazo]. O objetivo é realizar o acompanhamento dos sintomas e validar a persistência dos critérios diagnósticos. Use o prazo que ela indicar; no modelo dela, 2 anos.
 - Observação final, texto padrão: Observação: Os achados deste laudo refletem o estado neuropsicológico atual do paciente. Considerando a natureza dinâmica do desenvolvimento cognitivo, emocional e comportamental, bem como os potenciais efeitos de intervenções, estes resultados possuem caráter temporal e não devem ser interpretados como imutáveis. Cabe ressaltar que a utilização deste documento para finalidades diferentes daquela descrita em sua identificação é de inteira responsabilidade de quem o detém.
 Nesta seção não use marcadores de tópico. Itens ficam em linhas próprias dentro do bloco.

@@ -10,3 +10,6 @@ laudos/seeds/laudos_base.json
 
 # Laudos reais de pacientes (PDFs e extrações): nunca vão para o repositório.
 laudos_exemplos/
+
+# Exportação do Google Takeout com conversas do Gemini (dados de pacientes).
+gemini/

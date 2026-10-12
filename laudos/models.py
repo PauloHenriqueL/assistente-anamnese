@@ -20,10 +20,15 @@ class Laudo(models.Model):
         return self.paciente
 
     def paragrafos_atuais(self, secao="4.2"):
-        """Parágrafos ativos da seção, na ordem dos tipos de bloco, cada um com a versão atual."""
-        ordem = secoes.secao(secao).ordem_tipos
+        """Parágrafos ativos da seção, em ordem, cada um com a versão atual.
+
+        Na maioria das seções, a ordem é a dos tipos de bloco. Nas de ordem livre,
+        os blocos de abertura vêm primeiro, as linhas de dados por último e, no meio,
+        os parágrafos seguem a ordem em que a IA os escreveu, que é a das anotações.
+        """
+        s = secoes.secao(secao)
         ativos = list(self.paragrafos.filter(ativo=True, secao=secao).prefetch_related("versoes"))
-        ativos.sort(key=lambda p: (ordem.get(p.tema, 99), p.posicao, p.id))
+        ativos.sort(key=lambda p: s.chave_ordem(p.tema, p.posicao, p.id))
         return ativos
 
     def texto_secao(self, secao):
@@ -45,6 +50,9 @@ class Mensagem(models.Model):
     papel = models.CharField(max_length=10, choices=[(USUARIA, "Usuária"), (IA, "IA")])
     texto = models.TextField(blank=True)
     erro = models.TextField(blank=True)
+    pendente = models.BooleanField(default=False, help_text="Mensagem da usuária que a IA ainda está respondendo.")
+    modelo = models.CharField(max_length=60, blank=True, help_text="Modelo escolhido na tela; vazio = padrão do .env.")
+    raciocinio = models.CharField(max_length=10, blank=True, help_text="Modo de pensar usado: none, low, medium...")
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -55,7 +63,9 @@ class Paragrafo(models.Model):
     laudo = models.ForeignKey(Laudo, on_delete=models.CASCADE, related_name="paragrafos")
     secao = models.CharField(max_length=5, choices=SECAO_CHOICES, default="4.2")
     tema = models.CharField(max_length=40, choices=secoes.TODOS_OS_TIPOS)
-    posicao = models.PositiveIntegerField(default=0, help_text="Ordem entre parágrafos do mesmo tema.")
+    posicao = models.PositiveIntegerField(
+        default=0, help_text="Ordem do parágrafo: entre os do mesmo tema ou, nas seções de ordem livre, na seção."
+    )
     ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 
@@ -128,11 +138,15 @@ class Avaliacao(models.Model):
 class Exemplo(models.Model):
     """Exemplo que entra no prompt.
 
-    Os pares vêm dos likes: o trecho das anotações e o parágrafo aprovado.
-    Os exemplos de estilo vêm dos laudos base e não têm trecho de origem.
+    Os pares vêm dos likes e dos textos que ela aprovou nas conversas com o
+    Gemini: o trecho das anotações e o parágrafo aprovado. Os exemplos de estilo
+    vêm dos laudos base, um registro por seção inteira, sem trecho de origem.
     """
 
-    LAUDO_BASE, LIKE = "laudo_base", "like"
+    LAUDO_BASE, LIKE, GEMINI = "laudo_base", "like", "gemini"
+    FONTES = [(LAUDO_BASE, "Laudo base"), (LIKE, "Like"), (GEMINI, "Aprovado nas conversas com o Gemini")]
+    # Fontes de pares "material → texto aprovado" da própria dona.
+    FONTES_DE_PARES = [LIKE, GEMINI]
     dono = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exemplos", null=True, blank=True,
         help_text="Quem aprovou o exemplo. Vazio nos laudos base, que valem para todas.",
@@ -141,8 +155,11 @@ class Exemplo(models.Model):
     tema = models.CharField(max_length=40, choices=secoes.TODOS_OS_TIPOS)
     trecho_origem = models.TextField(blank=True)
     texto = models.TextField()
-    fonte = models.CharField(max_length=20, choices=[(LAUDO_BASE, "Laudo base"), (LIKE, "Like")])
+    fonte = models.CharField(max_length=20, choices=FONTES)
     grupo = models.CharField(max_length=100, blank=True, help_text="Laudo base de onde veio o exemplo.")
+    perfil = models.JSONField(
+        default=dict, blank=True, help_text="Faixa etária e queixas do laudo base, para escolher exemplos parecidos."
+    )
     posicao = models.PositiveIntegerField(default=0)
     versao = models.OneToOneField(Versao, null=True, blank=True, on_delete=models.SET_NULL, related_name="exemplo")
     ativo = models.BooleanField(default=True)

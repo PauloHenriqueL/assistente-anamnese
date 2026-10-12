@@ -1,16 +1,19 @@
 """Escolha dos exemplos que entram no prompt e dos reforços vindos dos deslikes.
 
-Sem banco vetorial por enquanto: os pares aprovados são escolhidos pelo tema.
-Quando houver centenas de pares, a busca por semelhança pode entrar aqui,
-com pgvector no mesmo Postgres.
+Sem banco vetorial por enquanto. Os exemplos de estilo são seções inteiras dos
+laudos base, escolhidas pelo perfil do caso (faixa etária e queixas). Os pares
+aprovados são escolhidos pelo tema, preferindo os da mesma faixa etária.
 """
 
 from collections import Counter, defaultdict
 
+from . import perfil as perfis
 from .models import Avaliacao, Exemplo
 
 POR_TEMA = 2
 MAXIMO_PARES = 16
+# Laudos base cujas seções inteiras entram no prompt de cada chamada.
+MAXIMO_LAUDOS_BASE = 4
 
 REFORCOS = {
     "curto": "Ela tem achado os parágrafos curtos. Escreva cada parágrafo com todo o material das anotações sobre o tema.",
@@ -23,24 +26,41 @@ REFORCOS = {
 }
 
 
-def estilo(secao="4.2"):
-    grupos = defaultdict(list)
-    for ex in Exemplo.objects.filter(fonte=Exemplo.LAUDO_BASE, ativo=True, secao=secao).order_by("grupo", "posicao"):
+def estilo(secao="4.2", perfil=None, candidatos=None):
+    """Seções inteiras dos laudos base, dos casos mais parecidos com o perfil dado.
+
+    `candidatos` permite passar exemplos fora do banco (o comando de avaliação usa).
+    """
+    if candidatos is None:
+        candidatos = Exemplo.objects.filter(fonte=Exemplo.LAUDO_BASE, ativo=True, secao=secao).order_by("grupo", "posicao")
+    grupos, perfil_do_grupo = defaultdict(list), {}
+    for ex in candidatos:
+        if ex.secao != secao:
+            continue
         grupos[ex.grupo].append(ex.texto)
-    return dict(grupos)
+        perfil_do_grupo.setdefault(ex.grupo, ex.perfil or {})
+    nomes = list(grupos)
+    if perfil:
+        # sorted é estável: em empate, fica a ordem original dos laudos.
+        nomes.sort(key=lambda g: -perfis.semelhanca(perfil, perfil_do_grupo[g]))
+    return {g: grupos[g] for g in nomes[:MAXIMO_LAUDOS_BASE]}
 
 
-def pares(dono, secao="4.2", temas_presentes=None):
+def pares(dono, secao="4.2", temas_presentes=None, faixa=""):
     """Pares aprovados pela própria usuária nesta seção. Exemplos de uma nunca entram no prompt de outra."""
     consulta = (
-        Exemplo.objects.filter(fonte=Exemplo.LIKE, ativo=True, dono=dono, secao=secao)
+        Exemplo.objects.filter(fonte__in=Exemplo.FONTES_DE_PARES, ativo=True, dono=dono, secao=secao)
         .exclude(trecho_origem="")
         .order_by("-criado_em")
     )
     if temas_presentes:
         consulta = consulta.filter(tema__in=temas_presentes)
+    candidatos = list(consulta)
+    if faixa:
+        # Os da mesma faixa etária primeiro; dentro de cada grupo, os mais recentes.
+        candidatos.sort(key=lambda ex: (ex.perfil or {}).get("faixa") != faixa)
     escolhidos, por_tema = [], Counter()
-    for ex in consulta:
+    for ex in candidatos:
         if por_tema[ex.tema] >= POR_TEMA:
             continue
         por_tema[ex.tema] += 1

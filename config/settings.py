@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -84,11 +85,13 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Em produção usa o Postgres do Neon (via DATABASE_URL). Sem essa variável,
 # cai no SQLite local para desenvolvimento.
+# DATABASE_URL vazia no .env também conta como ausente.
+_URL_BANCO = os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
 DATABASES = {
-    'default': dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+    'default': dj_database_url.parse(
+        _URL_BANCO,
         conn_max_age=600,
-        ssl_require=os.environ.get("DATABASE_URL", "").startswith("postgres"),
+        ssl_require=_URL_BANCO.startswith("postgres"),
     )
 }
 
@@ -151,7 +154,27 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # IA: gemini ou openai
 IA_PROVEDOR = os.environ.get("IA_PROVEDOR", "openai")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# Modelo que escreve e reescreve, e modelo que confere o texto contra o material.
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-sol")
+OPENAI_MODEL_VERIFICACAO = os.environ.get("OPENAI_MODEL_VERIFICACAO", "gpt-6-luna")
+# Esforço de raciocínio ("modo de pensar"): none, low, medium, high, xhigh ou max.
+# Vazio = modelo sem raciocínio, que recebe temperatura.
+OPENAI_RACIOCINIO = os.environ.get("OPENAI_RACIOCINIO", "medium")
+OPENAI_RACIOCINIO_VERIFICACAO = os.environ.get("OPENAI_RACIOCINIO_VERIFICACAO", "low")
+# Segundos de espera por chamada. Com raciocínio, uma seção longa pode levar minutos.
+IA_TIMEOUT = int(os.environ.get("IA_TIMEOUT", "300"))
+# A geração roda numa thread separada, e a tela acompanha o andamento. Nos testes, roda na hora.
+_RODANDO_TESTES = len(sys.argv) > 1 and sys.argv[1] == "test"
+IA_EM_SEGUNDO_PLANO = os.environ.get("IA_EM_SEGUNDO_PLANO", "0" if _RODANDO_TESTES else "1") == "1"
+# Modelos que a psicóloga pode escolher na conversa, no formato modelo=rótulo|modelo=rótulo.
+# O primeiro é o padrão da tela. Todos precisam aceitar o modo de pensar (reasoning_effort).
+IA_MODELOS = [
+    tuple(item.split("=", 1))
+    for item in os.environ.get(
+        "IA_MODELOS", "gpt-6-sol=Melhor qualidade|gpt-6-luna=Mais rápido e barato|gpt-5.4-mini=Econômico"
+    ).split("|")
+    if "=" in item
+]
 
 # Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")

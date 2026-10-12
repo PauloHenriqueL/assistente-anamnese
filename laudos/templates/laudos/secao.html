@@ -12,7 +12,8 @@
         Esta seção usa como base {{ faltando|join:", " }}, que ainda não foi escrita. Você pode seguir, mas a IA terá menos material.</p>
     {% endif %}
 
-    <div class="laudo" data-laudo="{{ laudo.id }}" data-url-mensagem="{% url 'mensagem' laudo.id secao.chave %}">
+    <div class="laudo" data-laudo="{{ laudo.id }}" data-url-mensagem="{% url 'mensagem' laudo.id secao.chave %}"
+         data-url-andamento="{% url 'andamento' laudo.id secao.chave %}"{% if pendente %} data-pendente="1"{% endif %}>
       <section class="cartao conversa">
         <div class="cartao-cabecalho">
           <span class="icone">{% include 'laudos/componentes/icone.html' with nome='conversa' %}</span>
@@ -30,6 +31,7 @@
                 <p class="aviso erro">{{ m.erro }}</p>
               {% else %}
                 {% if m.texto %}<p class="fala">{{ m.texto|linebreaksbr }}</p>{% endif %}
+                {% if m.papel == 'ia' and m.modelo %}<p class="apagado modelo-usado">Escrito com {{ m.modelo }}</p>{% endif %}
                 {% for versao in m.versoes.all %}{% include "laudos/_paragrafo.html" with editavel=False %}{% endfor %}
               {% endif %}
             </div>
@@ -44,6 +46,17 @@
 
         <form class="caixa" id="caixa">
           <textarea id="texto" rows="3" placeholder="{% if paragrafos %}Peça um ajuste, ou cole um bloco que você editou e peça para arrumar a escrita{% elif secao.chave == '2' or secao.chave == '4.2' %}Orientação opcional para a primeira geração{% else %}Escreva para a IA{% endif %}"></textarea>
+          <div class="escolha-ia">
+            <label class="campo-modelo" title="Modelos mais baratos respondem mais rápido, mas escrevem pior.">
+              <span class="apagado">Modelo</span>
+              <select id="modelo">
+                {% for chave, rotulo in modelos %}<option value="{{ chave }}">{{ rotulo }} ({{ chave }})</option>{% endfor %}
+              </select>
+            </label>
+            <label class="opcao" title="Pensando, a IA demora mais e costuma escrever melhor.">
+              <input type="checkbox" id="pensar" checked> Pensar antes de escrever
+            </label>
+          </div>
           <div class="acoes">
             <span class="apagado" id="estado">Ctrl + Enter envia</span>
             <button type="submit" class="botao primario">

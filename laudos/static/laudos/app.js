@@ -23,30 +23,61 @@
     const lista = document.getElementById("mensagens");
     lista.scrollTop = lista.scrollHeight;
 
-    caixa.addEventListener("submit", async (evento) => {
-      evento.preventDefault();
+    // A IA responde em segundo plano: a tela pergunta o andamento até a resposta ficar pronta.
+    let intervalo = null;
+    function aguardar() {
       botao.disabled = true;
       campo.disabled = true;
-
-      const textoBase = "Estamos construindo o texto";
+      const textoBase = "Estamos construindo o texto. Pode levar alguns minutos";
       let pontos = 0;
       estado.classList.remove("apagado");
       estado.classList.add("aguardando");
       estado.textContent = textoBase;
-      const intervalo = setInterval(() => {
+      clearInterval(intervalo);
+      intervalo = setInterval(() => {
         pontos = (pontos + 1) % 4;
         estado.textContent = textoBase + ".".repeat(pontos);
       }, 600);
+      const consultar = async () => {
+        try {
+          const corpo = await (await fetch(laudo.dataset.urlAndamento, { cache: "no-store" })).json();
+          if (!corpo.pendente) {
+            clearInterval(intervalo);
+            window.location.reload();
+            return;
+          }
+        } catch (e) {
+          // Falha de rede passageira: tenta de novo na próxima volta.
+        }
+        setTimeout(consultar, 4000);
+      };
+      setTimeout(consultar, 4000);
+    }
 
+    if (laudo.dataset.pendente) aguardar();
+
+    // Modelo e modo de pensar escolhidos por ela, lembrados neste navegador.
+    const modelo = document.getElementById("modelo");
+    const pensar = document.getElementById("pensar");
+    try {
+      const salvo = JSON.parse(localStorage.getItem("escolha-ia") || "{}");
+      if (salvo.modelo && [...modelo.options].some((o) => o.value === salvo.modelo)) modelo.value = salvo.modelo;
+      if (typeof salvo.pensar === "boolean") pensar.checked = salvo.pensar;
+    } catch (e) {}
+    const lembrar = () => {
+      try { localStorage.setItem("escolha-ia", JSON.stringify({ modelo: modelo.value, pensar: pensar.checked })); } catch (e) {}
+    };
+    modelo.addEventListener("change", lembrar);
+    pensar.addEventListener("change", lembrar);
+
+    caixa.addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      if (botao.disabled) return;
+      botao.disabled = true;  // antes do envio: um clique duplo não manda duas vezes
       try {
-        await enviar(laudo.dataset.urlMensagem, { texto: campo.value });
-        clearInterval(intervalo);
-        window.location.reload();
+        await enviar(laudo.dataset.urlMensagem, { texto: campo.value, modelo: modelo.value, pensar: pensar.checked });
+        aguardar();
       } catch (erro) {
-        clearInterval(intervalo);
-        estado.classList.remove("aguardando");
-        estado.classList.add("apagado");
-        estado.textContent = "Ctrl + Enter envia";
         alert(erro.message);
         window.location.reload();
       }

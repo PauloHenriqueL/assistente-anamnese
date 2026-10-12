@@ -317,6 +317,15 @@ tbody td { padding: 12px 20px; border-bottom: 1px solid color-mix(in srgb, var(-
 
 .caixa { padding: 12px 20px 16px; }
 .caixa .acoes, .modal .acoes { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+/* Escolha do modelo e do modo de pensar, logo abaixo da caixa de texto */
+.escolha-ia { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 10px; font-size: .9em; }
+.campo-modelo { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.campo-modelo select {
+  max-width: 100%; padding: 5px 8px; font: inherit; color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--raio); background: var(--cream);
+}
+.campo-modelo select:focus { outline: none; border-color: var(--marrs-dark); }
+.modelo-usado { font-size: .8em; margin-top: 2px; }
 .modal .acoes { justify-content: flex-end; }
 
 .paragrafo {
