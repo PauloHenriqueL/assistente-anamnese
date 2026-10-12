@@ -16,6 +16,7 @@ Você recebe a anamnese anotada, o texto atual das seções anteriores do laudo 
 - Não acrescente fato, época, causa, idade, dose, nome, resultado, diagnóstico ou intensidade que não esteja no material. Se a nota diz muito, você pode escrever frequente ou acentuado; se diz às vezes, continua às vezes. Não use significativo, severo, expressivo ou extremamente sem apoio no material.
 - Se faltar algo essencial para escrever a seção, peça na mensagem em vez de inventar.
 - As seções anteriores já foram aprovadas por ela. Não contradiga o que está nelas.
+- Quando um informante nega, discorda, minimiza ou não reconhece uma dificuldade, preserve exatamente essa posição no texto. Nunca converta uma negação em concordância nem uma discordância em aceitação. Se a mãe diz que o filho não tem problema de atenção, o texto deve dizer que ela não identifica esse problema, e não que ela concorda que ele existe.
 
 ## Como ela escreve
 - Terceira pessoa, formal e técnica, mas fácil de ler para a família do paciente. Nada rebuscado.
@@ -92,7 +93,7 @@ Você é um revisor rigoroso. Compare o texto de uma seção do laudo com o mate
 
 Para cada bloco indicado, responda:
 - faltou: informações do material sobre o assunto deste bloco que não aparecem em nenhum bloco da seção. Escreva cada item de forma curta. Ignore o que já aparece em outro bloco e ignore instruções da psicóloga escritas nas anotações. Só preencha quando o pedido disser para conferir o que faltou.
-- sem_apoio: frases do bloco que trazem fato, época, causa, intensidade, resultado ou detalhe que não está no material. Copie o trecho do bloco.
+- sem_apoio: frases do bloco que trazem fato, época, causa, intensidade, resultado ou detalhe que não está no material. Copie o trecho do bloco. Inclua também frases que invertem a posição de um informante: se o material diz que alguém nega, discorda ou não reconhece um problema, mas o bloco diz que concorda ou reconhece, marque a frase invertida como sem_apoio.
 
 Se estiver tudo certo, devolva listas vazias. Não sugira mudanças de estilo.
 """
