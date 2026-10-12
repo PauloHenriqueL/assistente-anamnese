@@ -27,12 +27,26 @@
       evento.preventDefault();
       botao.disabled = true;
       campo.disabled = true;
-      estado.textContent = "A IA está escrevendo e conferindo com as anotações. Pode levar um ou dois minutos.";
+
+      const textoBase = "Estamos construindo o texto";
+      let pontos = 0;
+      estado.classList.remove("apagado");
+      estado.classList.add("aguardando");
+      estado.textContent = textoBase;
+      const intervalo = setInterval(() => {
+        pontos = (pontos + 1) % 4;
+        estado.textContent = textoBase + ".".repeat(pontos);
+      }, 600);
+
       try {
         await enviar(laudo.dataset.urlMensagem, { texto: campo.value });
+        clearInterval(intervalo);
         window.location.reload();
       } catch (erro) {
-        estado.textContent = "";
+        clearInterval(intervalo);
+        estado.classList.remove("aguardando");
+        estado.classList.add("apagado");
+        estado.textContent = "Ctrl + Enter envia";
         alert(erro.message);
         window.location.reload();
       }

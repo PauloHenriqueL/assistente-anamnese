@@ -367,6 +367,8 @@ dialog.modal::backdrop { background: rgba(0,0,0,.6); }
 .direita { margin-left: auto; }
 .discreto { color: var(--ink-soft); }
 .apagado { color: var(--muted); font-size: 12px; }
+#estado.aguardando { color: var(--marrs); font-size: 13px; font-weight: 500; animation: piscar 1.4s ease-in-out infinite; }
+@keyframes piscar { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .mt { margin-top: 20px; }
 
 @media (max-width: 1000px) {
