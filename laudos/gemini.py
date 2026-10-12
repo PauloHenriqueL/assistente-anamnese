@@ -80,13 +80,18 @@ def _chamar_gemini(sistema, conteudo, esquema, temperatura):
         response_schema=esquema,
         temperature=temperatura,
     )
-    return cliente.models.generate_content(model=settings.GEMINI_MODEL, contents=conteudo, config=config).text
+    return cliente.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=conteudo,
+        config=config,
+        request_options=types.RequestOptions(timeout=90),
+    ).text
 
 
 def _chamar_openai(sistema, conteudo, esquema, temperatura):
     from openai import BadRequestError, OpenAI
 
-    cliente = OpenAI(api_key=settings.OPENAI_API_KEY)
+    cliente = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=90.0)
     pedido = dict(
         model=settings.OPENAI_MODEL,
         messages=[{"role": "system", "content": sistema}, {"role": "user", "content": conteudo}],
