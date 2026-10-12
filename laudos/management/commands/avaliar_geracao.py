@@ -8,13 +8,10 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 from laudos import secoes, servico
+from laudos.conferencia import VERBOS_DE_RELATO
 from laudos.management.commands.carregar_exemplos import ARQUIVO_REAL, blocos_do_arquivo
 from laudos.models import Exemplo, Laudo
 
-VERBOS_DE_RELATO = [
-    "relata", "informa", "refere", "menciona", "descreve", "destaca", "afirma", "cita", "explica", "recorda",
-    "ressalta", "reconhece", "pontua", "acrescenta", "conta", "observa", "aponta", "declara", "esclarece", "enfatiza",
-]
 PALAVRAS_A_EVITAR = [
     "paixão", "genitora", "genitor", "descendente", "significativo", "significativa", "severo", "severa", "extremo",
     "extrema", "imprescindível", "inúmeras", "perfeitamente", "total ausência", "estado anímico", "atípicos",

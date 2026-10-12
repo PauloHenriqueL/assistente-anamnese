@@ -93,6 +93,9 @@ class Versao(models.Model):
     origem = models.CharField(max_length=20, choices=ORIGENS)
     faltou = models.JSONField(default=list, blank=True)
     sem_apoio = models.JSONField(default=list, blank=True)
+    estilo = models.JSONField(
+        default=list, blank=True, help_text="Regras de escrita que a conferência do código ainda viu falhar."
+    )
     mensagem = models.ForeignKey(Mensagem, null=True, blank=True, on_delete=models.SET_NULL, related_name="versoes")
     criado_em = models.DateTimeField(auto_now_add=True)
 

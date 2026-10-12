@@ -24,7 +24,7 @@ from django.conf import settings
 from django.db import connections, transaction
 from django.utils import timezone
 
-from . import exemplos, gemini, perfil, prompt, secoes
+from . import conferencia, exemplos, gemini, perfil, prompt, secoes
 from .models import Laudo, Mensagem, Paragrafo, Versao
 
 logger = logging.getLogger(__name__)
@@ -119,13 +119,25 @@ def _secao_resultante(laudo, secao, paragrafos, do_zero=False):
     return "\n\n".join(blocos)
 
 
+def _registro(problemas, chave):
+    return problemas.setdefault(
+        chave, {"faltou": [], "sem_apoio": [], "mudou_demais": False, "estilo": [], "juntado": False}
+    )
+
+
 def _verificar(laudo, secao, paragrafos, do_zero=False):
-    """Devolve {id: {faltou, sem_apoio, mudou_demais}} só para quem tem problema."""
+    """Devolve {id: {faltou, sem_apoio, mudou_demais, estilo, juntado}} só para quem tem problema.
+
+    Junta a conferência da IA (o que faltou e o que não tem apoio) com as conferências
+    feitas no código (conferencia.py), que não dependem de o modelo obedecer ao prompt.
+    """
     problemas = {}
     for p in paragrafos:
         if p.modo.value == "revisao" and p.texto_base_usuaria and not p.pediu_acrescimo:
             if _mudanca(p.texto_base_usuaria, p.texto) < LIMITE_MUDANCA_REVISAO:
-                problemas.setdefault(p.id, {"faltou": [], "sem_apoio": [], "mudou_demais": False})["mudou_demais"] = True
+                _registro(problemas, p.id)["mudou_demais"] = True
+    for chave, pedidos in conferencia.problemas_de_estilo(secao, paragrafos, _material(laudo, secao, do_zero)).items():
+        _registro(problemas, chave)["estilo"] = pedidos
 
     conferir_faltou = {
         p.id for p in paragrafos if secao.conferir_faltou and (p.modo.value == "geracao" or p.pediu_acrescimo)
@@ -146,7 +158,7 @@ def _verificar(laudo, secao, paragrafos, do_zero=False):
             continue
         faltou = item.faltou if item.id in conferir_faltou else []
         if faltou or item.sem_apoio:
-            registro = problemas.setdefault(item.id, {"faltou": [], "sem_apoio": [], "mudou_demais": False})
+            registro = _registro(problemas, item.id)
             registro["faltou"] = faltou
             registro["sem_apoio"] = item.sem_apoio
     return problemas
@@ -164,6 +176,12 @@ def _pedido_reescrita(conteudo, resposta, problemas):
             linhas.append("Retire ou corrija o que não está no material: " + "; ".join(pr["sem_apoio"]))
         if pr["mudou_demais"]:
             linhas.append("Você mudou demais o texto dela. Volte ao texto dela e corrija só gramática e ligação entre frases.")
+        if pr.get("juntado"):
+            linhas.append(
+                "Este bloco juntou parágrafos do mesmo tema. Costure tudo num parágrafo único, em ordem "
+                "cronológica e com transições, sem repetir informação e sem perder fatos."
+            )
+        linhas += pr.get("estilo", [])
     anterior = json.dumps([p.model_dump(mode="json") for p in afetados], ensure_ascii=False, indent=1)
     return (
         f"{conteudo}\n\n# Sua resposta anterior para estes blocos\n{anterior}\n\n"
@@ -232,6 +250,7 @@ def _aplicar(laudo, secao, resposta, avisos, mensagem_ia):
             origem=ORIGEM_POR_MODO.get(p.modo.value, Versao.AJUSTE),
             faltou=aviso.get("faltou", []),
             sem_apoio=aviso.get("sem_apoio", []),
+            estilo=aviso.get("estilo", []),
             mensagem=mensagem_ia,
         )
 
@@ -263,6 +282,17 @@ def preparar(laudo, secao, texto_usuaria, mensagem_id=None, do_zero=False, candi
     return sistema, _conteudo(laudo, secao, texto_usuaria, mensagem_id, do_zero)
 
 
+def _existentes_por_tema(laudo, secao, do_zero):
+    if do_zero or not secao.ordem_livre:
+        return {}
+    existentes = {}
+    for p in laudo.paragrafos_atuais(secao.chave):
+        v = p.versao_atual()
+        if v:
+            existentes.setdefault(p.tema, (f"P{p.id}", v.texto))
+    return existentes
+
+
 def executar(laudo, secao, sistema, conteudo, do_zero=False, escolha=None):
     """Gera, verifica e reescreve uma vez. Só lê o banco: devolve (resposta, avisos).
 
@@ -270,9 +300,12 @@ def executar(laudo, secao, sistema, conteudo, do_zero=False, escolha=None):
     """
     resposta = gemini.gerar(sistema, conteudo, secao.chave, escolha)
     _ids_unicos(resposta)
+    juntados = conferencia.juntar_temas_repetidos(secao, resposta, _existentes_por_tema(laudo, secao, do_zero))
     avisos = {}
     if resposta.paragrafos:
         problemas = _verificar(laudo, secao, resposta.paragrafos, do_zero)
+        for chave in juntados:
+            _registro(problemas, chave)["juntado"] = True
         if problemas:
             reescrita = gemini.gerar(sistema, _pedido_reescrita(conteudo, resposta, problemas), secao.chave, escolha)
             por_id = {p.id: p for p in reescrita.paragrafos if p.id in problemas}
@@ -283,6 +316,12 @@ def executar(laudo, secao, sistema, conteudo, do_zero=False, escolha=None):
             for chave in problemas:
                 if chave not in por_id:
                     avisos[chave] = problemas[chave]
+    # Último recurso determinístico: aspas que sobraram saem pelo código.
+    for p in resposta.paragrafos:
+        if p.modo.value != "revisao" and conferencia.ASPAS.search(p.texto):
+            p.texto = conferencia.tirar_aspas(p.texto)
+            if p.id in avisos:
+                avisos[p.id]["estilo"] = [e for e in avisos[p.id].get("estilo", []) if "aspas" not in e]
     return resposta, avisos
 
 

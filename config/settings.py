@@ -168,11 +168,12 @@ _RODANDO_TESTES = len(sys.argv) > 1 and sys.argv[1] == "test"
 IA_EM_SEGUNDO_PLANO = os.environ.get("IA_EM_SEGUNDO_PLANO", "0" if _RODANDO_TESTES else "1") == "1"
 # Modelos que a psicóloga pode escolher na conversa, no formato modelo=rótulo|modelo=rótulo.
 # O primeiro é o padrão da tela. Todos precisam aceitar o modo de pensar (reasoning_effort).
+# Aspas e espaços em volta são ignorados (o valor pode vir colado com aspas no painel do Render).
 IA_MODELOS = [
-    tuple(item.split("=", 1))
+    tuple(parte.strip() for parte in item.split("=", 1))
     for item in os.environ.get(
         "IA_MODELOS", "gpt-6-sol=Melhor qualidade|gpt-6-luna=Mais rápido e barato|gpt-5.4-mini=Econômico"
-    ).split("|")
+    ).strip().strip("\"'").split("|")
     if "=" in item
 ]
 

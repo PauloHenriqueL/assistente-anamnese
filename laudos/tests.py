@@ -774,3 +774,67 @@ class EscolhaDoModeloTestes(TestCase):
         servico.em_andamento(self.laudo, "4.2")
         servico.em_andamento(self.laudo, "4.2")
         self.assertEqual(self.laudo.mensagens.filter(erro=servico.ERRO_INTERROMPIDA).count(), 1)
+
+
+class ConferenciaNoCodigoTestes(TestCase):
+    def setUp(self):
+        self.dona = usuaria()
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Social: poucos amigos. Sono: dorme mal.")
+
+    def _rodar(self, *respostas, texto=""):
+        with mock.patch.object(gemini, "gerar", side_effect=list(respostas)) as gerar, \
+             mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            servico.processar_mensagem(self.laudo, texto)
+        return gerar
+
+    def test_tema_repetido_na_resposta_vira_um_paragrafo_e_e_costurado(self):
+        primeira = resposta(par("novo", "social", texto="Ana tem poucos amigos."), par("novo", "sono"),
+                            par("novo", "social", texto="Prefere ficar em casa."))
+        costurada = resposta(par("N1", "social", texto="Ana tem poucos amigos e prefere ficar em casa."))
+        gerar = self._rodar(primeira, costurada)
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["social", "sono"])
+        self.assertIn("juntou parágrafos do mesmo tema", gerar.call_args_list[1].args[1])
+        self.assertIn("Ana tem poucos amigos. Prefere ficar em casa.", gerar.call_args_list[1].args[1])
+        self.assertEqual(Paragrafo.objects.get(tema="social").versao_atual().texto, "Ana tem poucos amigos e prefere ficar em casa.")
+
+    def test_bloco_novo_de_tema_existente_entra_no_paragrafo_que_ja_existe(self):
+        self._rodar(resposta(par("novo", "social", texto="Ana tem poucos amigos."), par("novo", "sono")))
+        social = Paragrafo.objects.get(tema="social")
+        costurada = resposta(par(f"P{social.id}", "social", texto="Ana tem poucos amigos e evita festas.", modo="ajuste"))
+        self._rodar(resposta(par("novo", "social", texto="Evita festas.", modo="ajuste")), costurada, texto="inclua as festas")
+        self.assertEqual(Paragrafo.objects.filter(tema="social", ativo=True).count(), 1)
+        self.assertEqual(social.versao_atual().texto, "Ana tem poucos amigos e evita festas.")
+
+    def test_palavra_proibida_pede_reescrita_e_o_que_sobra_vira_aviso(self):
+        ruim = resposta(par("novo", "sono", texto="Ana tem paixão por dormir tarde. " + TEXTO_LONGO))
+        gerar = self._rodar(ruim, ruim)
+        self.assertIn("Não use paixão", gerar.call_args_list[1].args[1])
+        self.assertTrue(any("paixão" in e for e in Versao.objects.get().estilo))
+
+    def test_aspas_que_sobram_saem_pelo_codigo(self):
+        com_aspas = resposta(par("novo", "sono", texto='Ana diz "durmo mal" desde sempre. ' + TEXTO_LONGO))
+        self._rodar(com_aspas, com_aspas)
+        versao = Versao.objects.get()
+        self.assertNotIn('"', versao.texto)
+        self.assertFalse(any("aspas" in e for e in versao.estilo))
+
+    def test_verbo_repetido_e_voz_da_avaliadora_sao_apontados(self):
+        from . import conferencia
+
+        bloco = par("N1", "social", texto="Ana relata poucos amigos. Relata também timidez, o que sugere ansiedade.")
+        pedidos = conferencia.problemas_de_estilo(secoes.ANAMNESE, [bloco], "")["N1"]
+        self.assertTrue(any("relata" in p for p in pedidos))
+        self.assertTrue(any("o que sugere" in p for p in pedidos))
+
+    def test_intensificador_so_passa_se_estiver_nas_anotacoes(self):
+        from . import conferencia
+
+        bloco = par("N1", "sono", texto="Ana tem insônia severa.")
+        self.assertIn("N1", conferencia.problemas_de_estilo(secoes.ANAMNESE, [bloco], "dorme mal"))
+        self.assertEqual(conferencia.problemas_de_estilo(secoes.ANAMNESE, [bloco], "insônia severa"), {})
+
+    def test_texto_que_ela_mandou_revisar_nao_passa_pelas_regras(self):
+        from . import conferencia
+
+        dela = par("N1", "sono", texto="Ana tem paixão por dormir.", modo="revisao", base="Ana tem paixão por dormir.")
+        self.assertEqual(conferencia.problemas_de_estilo(secoes.ANAMNESE, [dela], ""), {})

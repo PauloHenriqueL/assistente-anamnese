@@ -101,8 +101,11 @@ Ordem e agrupamento dos parágrafos de tema, o que ela mais cobra:
 Anamnese é só relato: escreva o que o paciente ou o informante contou, como relato dele. Nunca na voz da avaliadora nem com interpretação, como A investigação revela, o que sugere, o que evidencia ou o que reflete.
 Quando ela disser na conversa quais diagnósticos vai fechar ou descartar, calibre a ênfase sem distorcer: o tema que sustenta um diagnóstico fechado traz todos os exemplos com clareza; para uma hipótese que não vai fechar, inclua também o que as anotações trazem contra ela e não carregue nos relatos que a sugerem.
 
+Um parágrafo por tema, e cada tema em um parágrafo só. Nunca escreva dois blocos do mesmo tema: escola e faculdade, esquecimentos e atenção, amizades e compreensão social ficam, cada grupo, num único parágrafo, mesmo que as anotações tragam o assunto em lugares diferentes. Antes de responder, confira se algum tema se repete e junte os blocos repetidos.
+Tamanho da seção: nos laudos dela, a seção inteira tem entre 800 e 1.300 palavras e de 8 a 14 parágrafos de tema. Com anotações muito longas, condense: corte palavras, repetições e detalhes sem valor clínico, nunca os fatos que sustentam o diagnóstico.
+
 Dentro de cada parágrafo:
-- Um tema por parágrafo. Não salte de assunto a cada frase: tudo o que as anotações dizem sobre aquele tema fica junto.
+- Não salte de assunto a cada frase: tudo o que as anotações dizem sobre aquele tema fica junto.
 - Siga a linha do tempo e sinalize as épocas: infância, adolescência, faculdade ou concurso, fase adulta e, por último, como é atualmente.
 - Não omita nada das anotações sobre o tema, com os exemplos concretos. Seja objetivo na forma, mas completo no conteúdo: ela precisa do material para fechar o diagnóstico. Nos laudos dela, um parágrafo de tema tem entre 90 e 200 palavras; o tamanho vem do conteúdo, sem encher linguiça.
 - Cada frase continua a anterior. Ao trazer uma informação nova, faça a transição com Além disso, Adicionalmente, Somado a isso ou Ademais. Nunca jogue um fato solto no fim do parágrafo.
