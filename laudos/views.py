@@ -1,10 +1,12 @@
 import json
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import Count
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import exemplos, gemini, secoes, servico
@@ -130,7 +132,14 @@ def avaliar(request, versao_id):
         return JsonResponse({"ok": False, "erro": "Tipo de avaliação inválido."}, status=400)
     validos = {chave for chave, _ in Avaliacao.MOTIVOS}
     motivos = [m for m in dados.get("motivos", []) if m in validos] if tipo == Avaliacao.DESLIKE else []
-    Avaliacao.objects.create(versao=versao, tipo=tipo, motivos=motivos, comentario=dados.get("comentario", "").strip())
+    comentario = dados.get("comentario", "").strip()
+    # A tela reenvia quando a conexão cai no meio; a mesma avaliação repetida em seguida não conta duas vezes.
+    repetida = Avaliacao.objects.filter(
+        versao=versao, tipo=tipo, motivos=motivos, comentario=comentario,
+        criado_em__gte=timezone.now() - timedelta(minutes=2),
+    ).exists()
+    if not repetida:
+        Avaliacao.objects.create(versao=versao, tipo=tipo, motivos=motivos, comentario=comentario)
     if tipo == Avaliacao.LIKE:
         Exemplo.objects.update_or_create(
             versao=versao,

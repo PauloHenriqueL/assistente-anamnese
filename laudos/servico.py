@@ -12,6 +12,12 @@ depende e as mensagens da psicóloga na conversa desta seção.
 Com modelos que pensam, o fluxo leva minutos. Por isso a tela chama
 `iniciar_mensagem`, que responde na hora e roda o fluxo numa thread; a mensagem
 da psicóloga fica pendente até a resposta (ou o erro) ser gravada.
+
+A mensagem pendente funciona como uma fila no próprio banco. Enquanto a thread
+trabalha, ela grava um sinal de vida (`vivo_em`). Se o servidor reiniciar no
+meio (deploy, falta de memória), o sinal para; na próxima consulta da tela, a
+geração é retomada do zero, até `TENTATIVAS_MAXIMAS` vezes. Nada é gravado no
+laudo antes do fim, então recomeçar não duplica texto.
 """
 
 import difflib
@@ -21,7 +27,7 @@ import threading
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import connections, transaction
+from django.db import close_old_connections, connection, connections, transaction
 from django.utils import timezone
 
 from . import conferencia, exemplos, gemini, perfil, prompt, secoes
@@ -31,9 +37,13 @@ logger = logging.getLogger(__name__)
 
 HISTORICO_MAXIMO = 12  # mensagens recentes enviadas como contexto
 LIMITE_MUDANCA_REVISAO = 0.75  # abaixo disso, a revisão mudou demais o texto dela
-# Depois disso, uma geração pendente é dada como interrompida (o servidor reiniciou no meio, por exemplo).
-PRAZO_DA_GERACAO = timedelta(minutes=25)
+# Depois disso, uma geração pendente é dada como interrompida, mesmo que ainda dê sinal de vida.
+PRAZO_DA_GERACAO = timedelta(minutes=45)
 ERRO_INTERROMPIDA = "A geração foi interrompida antes de terminar. Envie a mensagem de novo."
+# A thread que gera grava um sinal de vida a cada BATIMENTO; sem sinal por SEM_SINAL, a geração morreu.
+BATIMENTO = timedelta(seconds=20)
+SEM_SINAL = timedelta(seconds=90)
+TENTATIVAS_MAXIMAS = 3
 
 ORIGEM_POR_MODO = {"geracao": Versao.GERACAO, "ajuste": Versao.AJUSTE, "revisao": Versao.REVISAO}
 
@@ -343,6 +353,7 @@ def responder(mensagem_usuaria):
     try:
         sistema, conteudo = preparar(laudo, secao, mensagem_usuaria.texto, mensagem_usuaria.id)
         resposta, avisos = executar(laudo, secao, sistema, conteudo, escolha=escolha)
+        _conexao_fresca()
         with transaction.atomic():
             if not _liberar(mensagem_usuaria):
                 # Passou do prazo e já virou erro na tela; ela pode ter mandado de novo. Não aplica.
@@ -360,9 +371,19 @@ def responder(mensagem_usuaria):
         # Qualquer falha inesperada também vira mensagem, para ela nunca ficar sem resposta.
         logger.exception("Falha inesperada ao responder a mensagem %s", mensagem_usuaria.id)
         erro_texto = "Algo deu errado ao gerar o texto. Envie a mensagem de novo e, se continuar, avise o responsável pelo sistema."
+    _conexao_fresca()
     if not _liberar(mensagem_usuaria):
         return None
     return Mensagem.objects.create(laudo=laudo, secao=secao.chave, papel=Mensagem.IA, erro=erro_texto)
+
+
+def _conexao_fresca():
+    """Descarta a conexão com o banco se ela caiu enquanto a IA pensava (o Neon fecha conexões paradas).
+
+    Dentro de uma transação aberta (testes, chamada direta) não mexe: fechar ali perderia a transação.
+    """
+    if not connection.in_atomic_block:
+        close_old_connections()
 
 
 def _registrar(laudo, texto_usuaria, secao, pendente, escolha=None):
@@ -370,7 +391,8 @@ def _registrar(laudo, texto_usuaria, secao, pendente, escolha=None):
     modelo, raciocinio = escolha or ("", "")
     return Mensagem.objects.create(
         laudo=laudo, secao=secao.chave, papel=Mensagem.USUARIA, texto=texto_usuaria, pendente=pendente,
-        modelo=modelo, raciocinio=raciocinio,
+        modelo=modelo, raciocinio=raciocinio, vivo_em=timezone.now() if pendente else None,
+        tentativas=1 if pendente else 0,
     )
 
 
@@ -379,22 +401,73 @@ def processar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None):
     return responder(_registrar(laudo, texto_usuaria, secoes.secao(chave_secao), pendente=True, escolha=escolha))
 
 
+def _bater(mensagem_id, parar):
+    """Grava o sinal de vida da geração até `parar` ser acionado."""
+    usou_o_banco = False
+    try:
+        while not parar.wait(BATIMENTO.total_seconds()):
+            try:
+                close_old_connections()
+                usou_o_banco = True
+                Mensagem.objects.filter(id=mensagem_id, pendente=True).update(vivo_em=timezone.now())
+            except Exception:
+                # Uma falha passageira do banco não derruba a geração; o próximo batimento tenta de novo.
+                logger.warning("Não deu para gravar o sinal de vida da mensagem %s", mensagem_id, exc_info=True)
+    finally:
+        if usou_o_banco:
+            connections.close_all()
+
+
 def _responder_em_thread(mensagem_id):
+    parar = threading.Event()
+    threading.Thread(target=_bater, args=(mensagem_id, parar), daemon=True).start()
     try:
         responder(Mensagem.objects.select_related("laudo").get(id=mensagem_id))
+    except Exception:
+        logger.exception("Falha ao responder a mensagem %s em segundo plano", mensagem_id)
     finally:
+        parar.set()
         connections.close_all()  # a thread abre conexões próprias com o banco
 
 
+def _disparar(mensagem):
+    threading.Thread(target=_responder_em_thread, args=(mensagem.id,), daemon=True).start()
+
+
+def _retomar(laudo, chave_secao, pendente):
+    """Retoma uma geração que parou de dar sinal de vida (o servidor reiniciou no meio)."""
+    ultimo_sinal = pendente.vivo_em or pendente.criado_em
+    agora = timezone.now()
+    if ultimo_sinal >= agora - SEM_SINAL:
+        return
+    if pendente.tentativas >= TENTATIVAS_MAXIMAS:
+        if _liberar(pendente):
+            logger.error("Geração da mensagem %s parou %d vezes; desistindo", pendente.id, pendente.tentativas)
+            Mensagem.objects.create(laudo=laudo, secao=chave_secao, papel=Mensagem.IA, erro=ERRO_INTERROMPIDA)
+        return
+    # Só quem conseguir trocar o sinal de vida retoma: várias abas consultando ao mesmo tempo não disparam duas.
+    retomou = Mensagem.objects.filter(
+        id=pendente.id, pendente=True, vivo_em=pendente.vivo_em, tentativas=pendente.tentativas
+    ).update(vivo_em=agora, tentativas=pendente.tentativas + 1)
+    if retomou:
+        logger.warning("Retomando a geração da mensagem %s (tentativa %d)", pendente.id, pendente.tentativas + 1)
+        _disparar(pendente)
+
+
 def em_andamento(laudo, chave_secao):
-    """A mensagem pendente desta seção, se houver. Pendências velhas viram erro."""
+    """A mensagem pendente desta seção, se houver. Pendências velhas viram erro; paradas são retomadas."""
     pendentes = laudo.mensagens.filter(secao=chave_secao, papel=Mensagem.USUARIA, pendente=True)
     limite = timezone.now() - PRAZO_DA_GERACAO
     for velha in pendentes.filter(criado_em__lt=limite):
         # Só quem tirar a pendência grava o erro: várias abas consultando ao mesmo tempo não duplicam.
         if _liberar(velha):
             Mensagem.objects.create(laudo=laudo, secao=chave_secao, papel=Mensagem.IA, erro=ERRO_INTERROMPIDA)
-    return pendentes.filter(criado_em__gte=limite).order_by("-criado_em").first()
+    pendente = pendentes.filter(criado_em__gte=limite).order_by("-criado_em").first()
+    if pendente and settings.IA_EM_SEGUNDO_PLANO:
+        _retomar(laudo, chave_secao, pendente)
+        if not Mensagem.objects.filter(id=pendente.id, pendente=True).exists():
+            return None
+    return pendente
 
 
 def iniciar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None):
@@ -407,15 +480,21 @@ def iniciar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None):
             return None
         mensagem = _registrar(laudo, texto_usuaria, secao, pendente=True, escolha=escolha)
     if settings.IA_EM_SEGUNDO_PLANO:
-        threading.Thread(target=_responder_em_thread, args=(mensagem.id,), daemon=True).start()
+        _disparar(mensagem)
     else:
         responder(mensagem)
     return mensagem
 
 
 def editar_versao(versao, texto):
-    """Edição feita pela própria psicóloga na tela, sem passar pela IA."""
+    """Edição feita pela própria psicóloga na tela, sem passar pela IA.
+
+    Texto igual ao da versão atual não cria outra: a tela reenvia quando a conexão cai no meio.
+    """
     paragrafo = versao.paragrafo
+    atual = paragrafo.versao_atual()
+    if atual and atual.texto == texto.strip():
+        return atual
     numero = (paragrafo.versoes.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
     return Versao.objects.create(
         paragrafo=paragrafo,

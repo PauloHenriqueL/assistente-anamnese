@@ -47,6 +47,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Responde a checagem de saúde do Render antes de tudo: sem login, sem redirecionar para HTTPS, sem checar o host.
+    'laudos.saude.SaudeMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     # Serve os arquivos estáticos em produção (Render), sem precisar de outro servidor.
@@ -91,9 +93,16 @@ DATABASES = {
     'default': dj_database_url.parse(
         _URL_BANCO,
         conn_max_age=600,
+        # O Neon fecha conexões paradas; antes de reaproveitar uma, o Django confere se ela ainda responde.
+        conn_health_checks=True,
         ssl_require=_URL_BANCO.startswith("postgres"),
     )
 }
+if _URL_BANCO.startswith("postgres"):
+    # Sinais de vida no TCP: a conexão não morre calada enquanto a IA pensa por minutos.
+    DATABASES["default"].setdefault("OPTIONS", {}).update(
+        connect_timeout=10, keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=5
+    )
 
 
 # Password validation
@@ -207,3 +216,19 @@ if not DEBUG:
 
 # Cache no banco: o bloqueio de tentativas de login vale para todos os processos do servidor.
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "cache_django"}}
+
+# Registros no console, que o Render guarda: erros da geração em segundo plano não somem calados.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"simples": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "simples"}},
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {
+        "laudos": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+    },
+}
+if _RODANDO_TESTES:
+    # Os testes provocam erros de propósito; o console fica só com o resultado.
+    LOGGING["root"]["level"] = LOGGING["loggers"]["laudos"]["level"] = "CRITICAL"

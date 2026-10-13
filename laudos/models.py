@@ -53,6 +53,10 @@ class Mensagem(models.Model):
     pendente = models.BooleanField(default=False, help_text="Mensagem da usuária que a IA ainda está respondendo.")
     modelo = models.CharField(max_length=60, blank=True, help_text="Modelo escolhido na tela; vazio = padrão do .env.")
     raciocinio = models.CharField(max_length=10, blank=True, help_text="Modo de pensar usado: none, low, medium...")
+    vivo_em = models.DateTimeField(
+        null=True, blank=True, help_text="Último sinal de vida da geração; parado há muito tempo, ela é retomada."
+    )
+    tentativas = models.PositiveSmallIntegerField(default=0, help_text="Quantas vezes a geração desta mensagem começou.")
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:

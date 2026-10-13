@@ -150,7 +150,12 @@ def _classificar(erro):
     texto = str(erro)
     status = getattr(erro, "status_code", None) or getattr(erro, "code", None)
     sem_cota = "limit: 0" in texto or "insufficient_quota" in texto
-    passageiro = status in (429, 500, 502, 503, 504) or any(
+    # Conexão que caiu no caminho (sem status HTTP) também é passageira. Tempo esgotado não: já esperou demais.
+    tempo_esgotado = "Timeout" in type(erro).__name__
+    conexao = not tempo_esgotado and (
+        isinstance(erro, ConnectionError) or type(erro).__name__ in ("APIConnectionError", "ConnectError", "RemoteProtocolError")
+    )
+    passageiro = conexao or status in (429, 500, 502, 503, 504) or any(
         c in texto for c in ("503", "UNAVAILABLE", "500", "INTERNAL", "429", "RESOURCE_EXHAUSTED", "overloaded")
     )
     return sem_cota, passageiro and not sem_cota

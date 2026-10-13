@@ -481,3 +481,14 @@ input[type='password']:focus { outline: none; border-color: var(--marrs-dark); }
   .ficha { grid-template-columns: 1fr; }
   .ficha-lateral { position: static; }
 }
+
+/* Recado no canto da tela (falha de conexão, erro ao salvar), no lugar do alert() */
+.recado {
+  position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: min(420px, calc(100vw - 32px));
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; font-size: 14px;
+  border-radius: var(--raio-lg); border: 1px solid; box-shadow: var(--sombra-lg); background: var(--cream);
+  color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.recado[data-tipo="sucesso"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.recado p { margin: 0; flex: 1; }
+.recado .fechar { border: 0; background: none; color: inherit; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; }

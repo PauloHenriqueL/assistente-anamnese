@@ -581,6 +581,97 @@ class SegundoPlanoTestes(TestCase):
         self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais()], ["sono"])
 
 
+class RetomadaTestes(TestCase):
+    """Geração que parou de dar sinal de vida (servidor reiniciou no meio) é retomada pela consulta da tela."""
+
+    def setUp(self):
+        self.dona = usuaria()
+        self.client.force_login(self.dona)
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia.")
+        self.url = f"/laudos/{self.laudo.id}/secao/4.2/andamento/"
+
+    def pendente(self, sem_sinal_ha, tentativas=1):
+        from django.utils import timezone
+
+        msg = Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="gere", pendente=True)
+        Mensagem.objects.filter(id=msg.id).update(vivo_em=timezone.now() - sem_sinal_ha, tentativas=tentativas)
+        return msg
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_geracao_parada_e_retomada(self):
+        msg = self.pendente(servico.SEM_SINAL * 2)
+        with mock.patch("threading.Thread") as Thread:
+            self.assertEqual(self.client.get(self.url).json()["pendente"], True)
+            self.client.get(self.url)  # a segunda consulta vê o sinal novo e não dispara de novo
+        Thread.assert_called_once()
+        self.assertEqual(Thread.call_args.kwargs["args"], (msg.id,))
+        msg.refresh_from_db()
+        self.assertEqual(msg.tentativas, 2)
+        self.assertTrue(msg.pendente)
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_geracao_com_sinal_recente_nao_e_retomada(self):
+        self.pendente(servico.BATIMENTO)
+        with mock.patch("threading.Thread") as Thread:
+            self.assertEqual(self.client.get(self.url).json()["pendente"], True)
+        Thread.assert_not_called()
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_depois_das_tentativas_vira_erro(self):
+        self.pendente(servico.SEM_SINAL * 2, tentativas=servico.TENTATIVAS_MAXIMAS)
+        with mock.patch("threading.Thread") as Thread:
+            self.assertEqual(self.client.get(self.url).json()["pendente"], False)
+        Thread.assert_not_called()
+        self.assertEqual(self.laudo.mensagens.get(papel=Mensagem.IA).erro, servico.ERRO_INTERROMPIDA)
+
+    @override_settings(IA_EM_SEGUNDO_PLANO=True)
+    def test_mensagem_nova_ja_nasce_com_sinal_de_vida(self):
+        with mock.patch("threading.Thread"):
+            self.client.post(f"/laudos/{self.laudo.id}/secao/4.2/mensagem/", {"texto": ""}, content_type="application/json")
+        msg = self.laudo.mensagens.get()
+        self.assertIsNotNone(msg.vivo_em)
+        self.assertEqual(msg.tentativas, 1)
+
+
+class ResistenciaTestes(TestCase):
+    def setUp(self):
+        self.dona = usuaria()
+        self.client.force_login(self.dona)
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia.")
+        p = Paragrafo.objects.create(laudo=self.laudo, secao="4.2", tema="sono")
+        self.versao = Versao.objects.create(paragrafo=p, numero=1, texto="Texto.", origem=Versao.GERACAO)
+
+    @override_settings(DEBUG=False, SECURE_SSL_REDIRECT=True, ALLOWED_HOSTS=["site.exemplo"])
+    def test_saude_responde_sem_login_https_nem_host(self):
+        self.client.logout()
+        r = self.client.get("/saude/", HTTP_HOST="10.0.0.5:10000")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"ok": True, "banco": True})
+
+    def test_edicao_reenviada_nao_cria_outra_versao(self):
+        for _ in range(2):
+            r = self.client.post(f"/versoes/{self.versao.id}/editar/", {"texto": "Novo."}, content_type="application/json")
+            self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.versao.paragrafo.versoes.count(), 2)
+
+    def test_avaliacao_reenviada_conta_uma_vez(self):
+        for _ in range(2):
+            self.client.post(
+                f"/versoes/{self.versao.id}/avaliar/", {"tipo": "deslike", "motivos": ["curto"]}, content_type="application/json"
+            )
+        self.assertEqual(Avaliacao.objects.count(), 1)
+
+    def test_queda_de_conexao_com_a_ia_e_passageira(self):
+        class APIConnectionError(Exception):
+            pass
+
+        class APITimeoutError(APIConnectionError):
+            pass
+
+        self.assertEqual(gemini._classificar(APIConnectionError("Connection error.")), (False, True))
+        self.assertEqual(gemini._classificar(APITimeoutError("Request timed out.")), (False, False))
+
+
 class PerfilEExemplosTestes(TestCase):
     def test_faixa_e_queixas(self):
         from . import perfil

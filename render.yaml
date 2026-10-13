@@ -2,9 +2,12 @@ services:
   - type: web
     name: assistente-anamnese
     runtime: python
-    plan: free
+    # Pago: o plano gratuito dorme sem uso e derruba a geração no meio.
+    plan: starter
     buildCommand: "./build.sh"
-    startCommand: "gunicorn config.wsgi:application --timeout 600"
+    startCommand: "gunicorn config.wsgi:application"
+    # O deploy só troca a instância quando a nova responde aqui.
+    healthCheckPath: /saude/
     envVars:
       # Gerada automaticamente pelo Render.
       - key: DJANGO_SECRET_KEY

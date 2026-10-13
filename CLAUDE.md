@@ -45,7 +45,7 @@ Projeto Django `config/`, app único `laudos/`. O fluxo de IA está isolado em a
 3. **Reescreve uma vez** só os blocos com problema; a reescrita é verificada de novo e o que ainda sobrar vira **aviso** no bloco (campos `faltou`/`sem_apoio` da `Versao`).
 4. **Aplica** (`_aplicar`) em transação: cria uma nova `Versao` por bloco afetado, sem tocar nos demais.
 
-A tela não espera esse fluxo: `iniciar_mensagem` grava a mensagem com `pendente=True` e roda `responder` numa thread (`IA_EM_SEGUNDO_PLANO`); a tela consulta `andamento/` até a resposta ou o erro serem gravados. Pendência mais velha que `PRAZO_DA_GERACAO` vira erro. `preparar`/`executar` só leem o banco e são reaproveitados por `avaliar_geracao`.
+A tela não espera esse fluxo: `iniciar_mensagem` grava a mensagem com `pendente=True` e roda `responder` numa thread (`IA_EM_SEGUNDO_PLANO`); a tela consulta `andamento/` até a resposta ou o erro serem gravados. A mensagem pendente é a fila: a thread grava um sinal de vida (`Mensagem.vivo_em`, a cada `BATIMENTO`); se o servidor reiniciar no meio, o sinal para e a próxima consulta do `andamento/` retoma a geração do zero (`_retomar`, até `TENTATIVAS_MAXIMAS`). Nada vai para o laudo antes do fim, então recomeçar não duplica texto. Pendência mais velha que `PRAZO_DA_GERACAO` vira erro. `preparar`/`executar` só leem o banco e são reaproveitados por `avaliar_geracao`.
 
 O "material do caso" montado para a IA = anamnese + texto atual das seções de base (`secao.contexto`) + conversa recente daquela seção. Contexto curto e fixo por design.
 
@@ -73,7 +73,7 @@ Na OpenAI há dois modelos: `OPENAI_MODEL` gera e reescreve, `OPENAI_MODEL_VERIF
 
 ## Produção
 
-Deploy no Render (`render.yaml` + `build.sh`) com Postgres do Neon via `DATABASE_URL` (sem ela, cai no SQLite local). WhiteNoise serve os estáticos (`collectstatic`). `garantir_admin` só roda no deploy quando `ADMIN_USUARIO`/`ADMIN_SENHA` estão no ambiente.
+Deploy no Render, plano pago (`render.yaml` + `build.sh`), com Postgres do Neon via `DATABASE_URL` (sem ela, cai no SQLite local). Gunicorn com um processo e várias threads (`gunicorn.conf.py`). `/saude/` (middleware `laudos/saude.py`, no topo da lista) responde sem login, sem HTTPS e sem conferir o host, para a checagem do Render. Conexões com o banco usam `conn_health_checks` e keepalive, porque o Neon fecha conexões paradas enquanto a IA pensa. No front, `enviar()` em `app.js` tenta de novo em falha de rede ou 502/503/504 e mostra erro num recado, nunca em `alert()`; por isso editar e avaliar ignoram reenvio repetido. WhiteNoise serve os estáticos (`collectstatic`). `garantir_admin` só roda no deploy quando `ADMIN_USUARIO`/`ADMIN_SENHA` estão no ambiente.
 
 ## Sigilo
 
