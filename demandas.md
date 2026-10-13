@@ -43,6 +43,7 @@ Uma conversa real com o Gemini mostrou quatro falhas:
 - **Edição na tela.** Ela pode editar um parágrafo direto, sem passar pelo Gemini. A edição vira uma versão de origem editado pela usuária.
 - **Reforços automáticos.** Um motivo de deslike vira regra extra no prompt quando aparece em pelo menos 3 e em 30% dos últimos 30 deslikes.
 - **Sigilo nos exemplos.** Os nomes de pacientes, familiares e profissionais dos laudos base foram trocados. O arquivo com esses laudos fica só na máquina local e não entra no repositório; no lugar dele, o repositório traz um exemplo fictício.
+- **Hospedagem e estabilidade.** Render pago, com Postgres do Neon. Quedas de servidor faziam a psicóloga ver "Failed to fetch" e perder gerações. Agora a mensagem pendente é a fila: a geração dá sinal de vida e, se o servidor reiniciar no meio, é retomada até três vezes. A tela tenta de novo sozinha quando a conexão cai, mostra o erro num recado em vez de `alert()` e guarda o rascunho. Fila com Redis e Celery foi descartada por ser grande demais para uma usuária.
 - **Provedor da IA.** O sistema aceita OpenAI e Gemini, escolhidos por IA_PROVEDOR no .env. A OpenAI é o padrão. A usuária não vê qual IA está em uso.
 
 ## Seções do laudo
@@ -111,4 +112,4 @@ Cada seção tem os próprios tipos de bloco, exemplos, pares aprovados, reforç
 - **Conversas antigas.** Importar o histórico do Gemini pelo Google Takeout, na atividade dos apps do Gemini. A exportação precisa ser feita na conta dela. O PDF de conversa compartilhada corta as mensagens dela, então não serve como fonte completa.
 - **Busca por semelhança.** Quando houver centenas de pares aprovados, trocar a escolha por tema por busca vetorial com pgvector no Postgres.
 - **Aprender com as edições.** Comparar o rascunho do Gemini com a versão final dela para descobrir padrões de correção e ajustar o prompt fixo.
-- **Servidor.** Postgres, login e HTTPS antes de sair do localhost. Os dados são de saúde e exigem cuidado com a LGPD.
+- **LGPD.** Já há Postgres, login e HTTPS em produção. Os dados são de saúde: falta formalizar retenção, backup e o registro de quem acessa o quê.

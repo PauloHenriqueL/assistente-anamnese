@@ -27,6 +27,8 @@ O critério de um bom parágrafo é dela. Por isso o sistema não tenta adivinha
 - **Verificação por uma segunda chamada.** A completude e a falta de invenção são conferidas pelo sistema, e não pela usuária.
 - **Exemplos escolhidos por tema, sem banco vetorial.** Com poucas dezenas de pares aprovados, uma consulta comum resolve. A busca vetorial com pgvector fica para quando houver centenas.
 - **Contexto curto e fixo.** Cada chamada leva a anamnese, a versão atual da seção e as últimas mensagens. Isso evita que a IA se afaste das regras em conversas longas.
+- **Geração em segundo plano que se recupera sozinha.** Com modelos que pensam, uma resposta leva minutos. A tela não espera: a mensagem fica pendente no banco, que funciona como fila, e a geração roda em segundo plano dando sinal de vida. Se o servidor reiniciar no meio, a geração é retomada do zero, até três vezes, sem duplicar texto. Sem Redis nem Celery: para uma usuária, o Postgres basta.
+- **Tela que aguenta queda de conexão.** Envio, like e edição tentam de novo quando a rede cai ou o servidor está reiniciando, o servidor ignora o reenvio repetido, e o erro aparece num recado discreto, sem `alert()`. O rascunho da mensagem fica guardado no navegador.
 - **Provedor intercambiável.** OpenAI ou Gemini, escolhidos por uma variável de ambiente, com novas tentativas automáticas quando o serviço está sobrecarregado.
 - **Acesso e isolamento.** Toda página exige login. Cada laudo e cada exemplo aprovado têm dona, e um laudo de outra pessoa responde como se não existisse. O login bloqueia por 15 minutos depois de 5 senhas erradas, e em produção só há HTTPS, cookies seguros e HSTS.
 - **Sigilo.** Nenhum dado de paciente real está no repositório. Os laudos de referência ficam só na máquina local, e o repositório traz exemplos fictícios.
@@ -47,6 +49,15 @@ Python 3.12, Django 5, SDKs da OpenAI e do Google Gen AI, Pydantic para os forma
 | `laudos/exemplos.py` | escolha de exemplos e reforços vindos das avaliações |
 | `laudos/temas.py` | temas, ordem e tamanho mínimo dos parágrafos |
 | `laudos/tests.py` | testes com a IA simulada, que nunca chamam a rede |
+
+## Produção
+
+Render, plano pago (Starter, gerenciado pelo `render.yaml`), com Postgres do Neon via `DATABASE_URL`. O plano gratuito não serve: ele dorme sem uso e derruba a geração no meio.
+
+- O Gunicorn roda um processo com várias threads (`gunicorn.conf.py`).
+- O Render só promove um deploy quando `/saude/` responde, e essa checagem inclui o banco. A rota responde sem login.
+- As conexões com o Neon são conferidas antes do uso e mantidas com keepalive, porque ele fecha conexões paradas enquanto a IA pensa.
+- Os erros vão para o console e aparecem nos logs do Render.
 
 ## Rodar localmente
 
