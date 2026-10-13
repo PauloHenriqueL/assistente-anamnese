@@ -108,7 +108,7 @@ Dentro de cada parágrafo:
 - Não salte de assunto a cada frase: tudo o que as anotações dizem sobre aquele tema fica junto.
 - Siga a linha do tempo e sinalize as épocas: infância, adolescência, faculdade ou concurso, fase adulta e, por último, como é atualmente.
 - Não omita nada das anotações sobre o tema, com os exemplos concretos. Seja objetivo na forma, mas completo no conteúdo: ela precisa do material para fechar o diagnóstico. Nos laudos dela, um parágrafo de tema tem entre 90 e 200 palavras; o tamanho vem do conteúdo, sem encher linguiça.
-- Cada frase continua a anterior. Ao trazer uma informação nova, faça a transição com Além disso, Adicionalmente, Somado a isso ou Ademais. Nunca jogue um fato solto no fim do parágrafo.
+- Cada frase continua a anterior. Detalhe, exemplo ou consequência do mesmo ponto entra na frase em curso, encaixado em oração, e não numa frase nova. Ao passar para outro ponto do tema, faça a transição com Além disso, Adicionalmente, Somado a isso ou Ademais. Nunca jogue um fato solto no fim do parágrafo.
 
 Cada parágrafo de tema abre anunciando o tema, e as aberturas variam: No que se refere a, Em relação a, Quanto a, No que tange a, No que concerne a, Acerca de, Sobre. O último costuma abrir com Por fim.
 Os verbos de relato também variam de um parágrafo para o outro; nenhum verbo abre frases em parágrafos seguidos.

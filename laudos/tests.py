@@ -917,6 +917,37 @@ class ConferenciaNoCodigoTestes(TestCase):
         self.assertTrue(any("relata" in p for p in pedidos))
         self.assertTrue(any("o que sugere" in p for p in pedidos))
 
+    def test_paragrafo_picotado_pede_frases_encadeadas(self):
+        from . import conferencia
+
+        picotado = par("N1", "social", texto=(
+            "No que se refere à socialização, Ana teve poucos amigos na infância. Brincava sozinha no recreio. "
+            "Informa que tentou brincar com uma vizinha. Não conseguia criar diálogos. "
+            "Refere que o primeiro grupo surgiu no ensino médio. Sentia-se acolhida ali. Relata que o grupo se desfez."
+        ))
+        pedidos = conferencia.problemas_de_estilo(secoes.ANAMNESE, [picotado], "")["N1"]
+        self.assertTrue(any("picotado" in p for p in pedidos))
+
+    def test_paragrafo_encadeado_como_o_dela_passa(self):
+        from . import conferencia
+
+        encadeado = par("N1", "social", texto=(
+            "No que se refere à socialização, relatos de Ana e de sua mãe indicam desafios vivenciados desde a infância, "
+            "fase em que exibia comportamento retraído e demonstrava reduzido interesse por interações entre pares. "
+            "A paciente recorda tentativas de atividades lúdicas com uma vizinha, embora sem sucesso na formulação de "
+            "diálogos imaginários nas brincadeiras. Informa que a primeira aproximação com colegas ocorreu apenas no ensino "
+            "médio, inserida em um grupo no qual se sentia acolhida pela ausência de julgamentos, relação sem manutenção "
+            "posterior. Em decorrência dessas características, menciona que a mãe procurou atendimento psiquiátrico, "
+            "resultando na prescrição de medicações."
+        ))
+        self.assertEqual(conferencia.problemas_de_estilo(secoes.ANAMNESE, [encadeado], ""), {})
+
+    def test_linhas_de_dados_curtas_nao_contam_como_picotadas(self):
+        from . import conferencia
+
+        dados = par("N1", "saude", texto="- Saúde: Asma. Rinite. Dorme mal. Sem cirurgias.")
+        self.assertEqual(conferencia.problemas_de_estilo(secoes.ANAMNESE, [dados], ""), {})
+
     def test_intensificador_so_passa_se_estiver_nas_anotacoes(self):
         from . import conferencia
 

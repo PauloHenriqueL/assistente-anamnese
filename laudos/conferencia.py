@@ -44,10 +44,22 @@ VOZ_DA_AVALIADORA = [
 
 ASPAS = re.compile(r"[\"“”]")
 MAXIMO_PALAVRAS_TEMA = 230
+# Nos laudos dela, a frase narrativa tem em média 22 palavras. Abaixo disso, o parágrafo sai picotado.
+MINIMO_MEDIA_PALAVRAS_FRASE = 17
+MINIMO_FRASES_PARA_MEDIR = 4
+FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
 
 
 def _achar(padrao, texto):
     return re.search(rf"\b(?:{padrao})\b", texto, re.IGNORECASE)
+
+
+def media_palavras_por_frase(texto):
+    """(média de palavras por frase, número de frases) do texto."""
+    frases = [f for f in FIM_DE_FRASE.split(texto.strip()) if f.strip()]
+    if not frases:
+        return 0, 0
+    return sum(len(f.split()) for f in frases) / len(frases), len(frases)
 
 
 def problemas_de_estilo(secao, paragrafos, material):
@@ -84,6 +96,13 @@ def problemas_de_estilo(secao, paragrafos, material):
         tema_grande = secao.ordem_livre and p.tema not in secao.tipos_finais | secao.tipos_abertura
         if tema_grande and len(texto.split()) > MAXIMO_PALAVRAS_TEMA:
             pedidos.append("Parágrafo longo demais: condense para até 200 palavras cortando palavras e repetições, nunca fatos.")
+        media, frases = media_palavras_por_frase(texto)
+        if tema_grande and frases >= MINIMO_FRASES_PARA_MEDIR and media < MINIMO_MEDIA_PALAVRAS_FRASE:
+            pedidos.append(
+                f"Parágrafo picotado: {frases} frases com média de {media:.0f} palavras. Junte as frases do mesmo assunto, "
+                "encaixando o fato seguinte em oração (em que, no qual, embora, resultando em, gerúndio), até a média "
+                "ficar perto de 22 palavras, sem cortar nem acrescentar fatos."
+            )
         if pedidos:
             resultado[p.id] = pedidos
     return resultado
