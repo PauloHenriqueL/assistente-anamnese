@@ -41,6 +41,22 @@
 
 <section class="cartao mt">
   <div class="cartao-cabecalho">
+    <span class="icone">{% include 'laudos/componentes/icone.html' with nome='editar' %}</span>
+    <h2>Quanto você precisou corrigir a IA</h2>
+  </div>
+  {% if edicoes_por_mes %}
+    <table>
+      <thead><tr><th>Mês</th><th>Blocos da IA</th><th>Editados</th><th>Quanto mudou, em média</th></tr></thead>
+      <tbody>{% for mes, total, editados, pct, mudanca in edicoes_por_mes %}<tr><td>{{ mes }}</td><td>{{ total }}</td><td><span class="barra-pct"><span style="width:{{ pct }}%"></span></span>{{ editados }} ({{ pct }}%)</td><td>{% if editados %}{{ mudanca }}% do texto{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+    <p class="discreto" style="padding:12px 20px 16px;margin:0">Se a IA está aprendendo o seu jeito, os dois números caem com o tempo: menos blocos editados e menos texto mudado em cada um.</p>
+  {% else %}
+    <div class="estado-vazio"><span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='vazio' tamanho=24 %}</span><h2>Nenhum bloco da IA ainda</h2><p>Os números aparecem aqui quando a IA escrever os primeiros blocos.</p></div>
+  {% endif %}
+</section>
+
+<section class="cartao mt">
+  <div class="cartao-cabecalho">
     <span class="icone">{% include 'laudos/componentes/icone.html' with nome='info' %}</span>
     <h2>Reforços que entram no prompt agora</h2>
   </div>

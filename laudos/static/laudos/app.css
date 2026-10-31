@@ -385,7 +385,9 @@ dialog.modal::backdrop { background: rgba(0,0,0,.6); }
 .mt { margin-top: 20px; }
 
 @media (max-width: 1000px) {
-  .laudo, .grade-lista { grid-template-columns: 1fr; }
+  .laudo { grid-template-columns: 1fr; }
+  /* minmax(0, …): uma tabela larga não alarga a coluna além da tela. */
+  .grade-lista { grid-template-columns: minmax(0, 1fr); }
   .conversa { position: static; height: auto; }
   .mensagens { max-height: 60vh; }
   .indicadores { grid-template-columns: 1fr; }
@@ -395,6 +397,8 @@ dialog.modal::backdrop { background: rgba(0,0,0,.6); }
   .bloco-marca { width: auto; border-right: 0; }
   .topo-titulo { display: none; }
   .opcoes { grid-template-columns: 1fr; }
+  thead th, tbody td { padding: 10px 12px; }
+  .barra-pct { width: 40px; }
 }
 
 /* ── Acesso ─────────────────────────────────────────────── */

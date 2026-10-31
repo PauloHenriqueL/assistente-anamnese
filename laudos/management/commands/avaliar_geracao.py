@@ -1,12 +1,13 @@
-import difflib
 import json
 import re
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from laudos import exemplos as exemplos_ia
 from laudos import secoes, servico
 from laudos.conferencia import VERBOS_DE_RELATO
 from laudos.management.commands.carregar_exemplos import ARQUIVO_REAL, blocos_do_arquivo
@@ -34,29 +35,63 @@ class Command(BaseCommand):
             "--exemplos", default=str(ARQUIVO_REAL),
             help="laudos_base.json usado como exemplos de estilo no lugar dos do banco. Use --exemplos '' para os do banco.",
         )
+        parser.add_argument(
+            "--config", action="append", choices=sorted(exemplos_ia.CONFIGURACOES),
+            help="Configuração de exemplos (laudos/exemplos.py); pode repetir para comparar. Padrão: EXEMPLOS_CONFIG.",
+        )
+        parser.add_argument("--rodadas", type=int, default=1, help="Gerações por laudo e configuração; a IA varia de uma para outra.")
 
-    def handle(self, *args, laudo, secao, saida, exemplos, **opcoes):
+    def handle(self, *args, laudo, secao, saida, exemplos, config, rodadas, **opcoes):
         s = secoes.secao(secao)
         candidatos = self._candidatos(exemplos) if exemplos else None
-        partes = [f"# Avaliação da geração da seção {s.titulo}", ""]
+        configs = config or [settings.EXEMPLOS_CONFIG]
+        laudos = []
         for laudo_id in laudo:
             try:
-                obj = Laudo.objects.get(id=laudo_id)
+                laudos.append(Laudo.objects.get(id=laudo_id))
             except Laudo.DoesNotExist:
                 raise CommandError(f"Laudo {laudo_id} não existe neste banco.")
-            self.stdout.write(f"Gerando a seção {s.chave} do laudo {laudo_id}...")
-            inicio = time.monotonic()
-            sistema, conteudo = servico.preparar(obj, s, s.pedido_inicial, do_zero=True, candidatos_estilo=candidatos)
-            resposta, avisos = servico.executar(obj, s, sistema, conteudo, do_zero=True)
-            segundos = time.monotonic() - inicio
-            blocos = sorted(
-                enumerate(resposta.paragrafos), key=lambda par: s.chave_ordem(par[1].tema, par[0], par[0])
-            )
-            novo = [(p.tema, p.texto.strip(), avisos.get(p.id, {})) for _, p in blocos]
-            atual = [(p.tema, p.versao_atual().texto) for p in obj.paragrafos_atuais(s.chave) if p.versao_atual()]
-            partes += self._relatorio(obj, novo, atual, segundos, len(sistema) + len(conteudo))
+        detalhes, resultados = [], defaultdict(list)
+        for nome in configs:
+            for obj in laudos:
+                for rodada in range(1, rodadas + 1):
+                    self.stdout.write(f"Config {nome}, laudo {obj.id}, rodada {rodada}: gerando a seção {s.chave}...")
+                    inicio = time.monotonic()
+                    sistema, conteudo = servico.preparar(
+                        obj, s, s.pedido_inicial, do_zero=True, candidatos_estilo=candidatos, config=nome
+                    )
+                    resposta, avisos = servico.executar(obj, s, sistema, conteudo, do_zero=True)
+                    segundos = time.monotonic() - inicio
+                    blocos = sorted(
+                        enumerate(resposta.paragrafos), key=lambda par: s.chave_ordem(par[1].tema, par[0], par[0])
+                    )
+                    novo = [(p.tema, p.texto.strip(), avisos.get(p.id, {})) for _, p in blocos]
+                    atual = [(p.tema, p.versao_atual().texto) for p in obj.paragrafos_atuais(s.chave) if p.versao_atual()]
+                    linhas, medidas = self._relatorio(
+                        obj, novo, atual, segundos, len(sistema) + len(conteudo), f"config {nome}, rodada {rodada}"
+                    )
+                    detalhes += linhas
+                    resultados[nome].append(medidas)
+        partes = [f"# Avaliação da geração da seção {s.titulo}", ""] + self._resumo(resultados) + detalhes
         Path(saida).write_text("\n".join(partes), encoding="utf-8")
         self.stdout.write(self.style.SUCCESS(f"Relatório em {saida}"))
+
+    def _resumo(self, resultados):
+        """Média por configuração. Melhor = semelhança maior sem mais itens sem apoio."""
+        linhas = [
+            "## Resumo por configuração",
+            "",
+            "| Config | Gerações | Semelhança média | Sem apoio por geração | Pode ter faltado por geração | Prompt (caracteres) | Tempo médio |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for nome, medidas in resultados.items():
+            n = len(medidas)
+            media = lambda chave: sum(m[chave] for m in medidas) / n
+            linhas.append(
+                f"| {nome} | {n} | {media('semelhanca'):.3f} | {media('sem_apoio'):.1f} | {media('faltou'):.1f} "
+                f"| {media('prompt'):.0f} | {media('segundos'):.0f} s |"
+            )
+        return linhas + [""]
 
     def _candidatos(self, caminho):
         caminho = Path(caminho)
@@ -78,14 +113,22 @@ class Command(BaseCommand):
             "aspas": junto.count('"') + junto.count("“"),
         }
 
-    def _relatorio(self, laudo, novo, atual, segundos, tamanho_prompt):
+    def _relatorio(self, laudo, novo, atual, segundos, tamanho_prompt, rotulo):
+        """(linhas do relatório, medidas para o resumo) de uma geração."""
         titulos = [m.group(1).strip() for m in map(TITULO_DE_ANOTACAO.match, laudo.anamnese.splitlines()) if m]
         texto_novo = "\n\n".join(t for _, t, _ in novo)
         texto_atual = "\n\n".join(t for _, t in atual)
-        semelhanca = difflib.SequenceMatcher(None, texto_novo.split(), texto_atual.split()).ratio() if atual else 0
+        semelhanca = exemplos_ia.semelhanca(texto_novo, texto_atual) if atual else 0
         m_novo, m_atual = self._metricas([t for _, t, _ in novo]), self._metricas([t for _, t in atual])
+        medidas = {
+            "semelhanca": semelhanca,
+            "sem_apoio": sum(len(a.get("sem_apoio", [])) for _, _, a in novo),
+            "faltou": sum(len(a.get("faltou", [])) for _, _, a in novo),
+            "prompt": tamanho_prompt,
+            "segundos": segundos,
+        }
         linhas = [
-            f"## Laudo {laudo.id}",
+            f"## Laudo {laudo.id} ({rotulo})",
             "",
             f"- Tempo total (gerar, verificar, reescrever): {segundos:.0f} s; prompt com {tamanho_prompt} caracteres",
             f"- Semelhança com o texto atual dela: {semelhanca:.2f}",
@@ -106,4 +149,4 @@ class Command(BaseCommand):
                 linhas.append(f"> Sem apoio: {'; '.join(aviso['sem_apoio'])}")
             linhas.append("")
         linhas += ["### Texto atual dela", ""] + [f"**[{tema}]** {texto}\n" for tema, texto in atual]
-        return linhas
+        return linhas, medidas

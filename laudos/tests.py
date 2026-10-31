@@ -1,9 +1,11 @@
 import io
+from datetime import timedelta
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from . import exemplos, gemini, prompt, secoes, servico
 from .extracao import ArquivoInvalido, texto_do_arquivo
@@ -745,7 +747,7 @@ class PerfilEExemplosTestes(TestCase):
                                texto="criança 2", perfil={"faixa": "crianca"})
         textos = [p["texto"] for p in exemplos.pares(dona, "4.2", ["sono"], "adulto")]
         self.assertEqual(textos[0], "adulto")
-        self.assertEqual(len(textos), exemplos.POR_TEMA)
+        self.assertEqual(len(textos), exemplos.configuracao().por_tema)
         self.assertEqual(exemplos.pares(usuaria("bia"), "4.2"), [])
 
     def test_carregar_exemplos_no_formato_novo(self):
@@ -1000,3 +1002,129 @@ class ConferenciaNoCodigoTestes(TestCase):
 
         dela = par("N1", "sono", texto="Ana tem paixão por dormir.", modo="revisao", base="Ana tem paixão por dormir.")
         self.assertEqual(conferencia.problemas_de_estilo(secoes.ANAMNESE, [dela], ""), {})
+
+
+def palavras(prefixo, n=100):
+    return " ".join(f"{prefixo}{i}" for i in range(n))
+
+
+class AprendizadoTestes(TestCase):
+    def setUp(self):
+        self.dona = usuaria()
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia.")
+        self.outro = Laudo.objects.create(dono=self.dona, paciente="Bia", anamnese="Sono: insônia.")
+
+    def _par(self, tema, texto, minutos=0, laudo=None):
+        versao = None
+        if laudo:
+            p = Paragrafo.objects.create(laudo=laudo, tema=tema)
+            versao = Versao.objects.create(paragrafo=p, numero=1, texto=texto, origem=Versao.GERACAO)
+        ex = Exemplo.objects.create(
+            fonte=Exemplo.LIKE if versao else Exemplo.GEMINI, dono=self.dona, secao="4.2", tema=tema,
+            trecho_origem="nota", texto=texto, versao=versao,
+        )
+        Exemplo.objects.filter(id=ex.id).update(criado_em=timezone.now() - timedelta(minutes=minutos))
+
+    def _corrigido(self, laudo, tema, ia, ela, motivos=(), minutos=0, reedicao=None):
+        p = Paragrafo.objects.create(laudo=laudo, tema=tema)
+        v1 = Versao.objects.create(paragrafo=p, numero=1, texto=ia, origem=Versao.GERACAO)
+        if motivos:
+            Avaliacao.objects.create(versao=v1, tipo="deslike", motivos=list(motivos))
+        v2 = Versao.objects.create(paragrafo=p, numero=2, texto=ela, origem=Versao.EDICAO)
+        ultima = v2
+        if reedicao:
+            ultima = Versao.objects.create(paragrafo=p, numero=3, texto=reedicao, origem=Versao.EDICAO)
+        Versao.objects.filter(id=ultima.id).update(criado_em=timezone.now() - timedelta(minutes=minutos))
+        return p
+
+    def test_rodizio_cobre_todos_os_temas_antes_de_repetir(self):
+        for i in range(4):
+            self._par("sono", f"sono {i}", minutos=i)
+        self._par("social", "social", minutos=10)
+        self._par("escola", "escola", minutos=20)
+        com_rodizio = exemplos.Configuracao(por_tema=3, maximo=4, rodizio=True, correcoes=0)
+        sem_rodizio = exemplos.Configuracao(por_tema=3, maximo=4, rodizio=False, correcoes=0)
+        self.assertEqual([p["texto"] for p in exemplos.pares(self.dona, config=com_rodizio)], ["sono 0", "social", "escola", "sono 1"])
+        self.assertEqual([p["texto"] for p in exemplos.pares(self.dona, config=sem_rodizio)], ["sono 0", "sono 1", "sono 2", "social"])
+
+    def test_configuracao_vem_do_ambiente_e_o_padrao_e_o_original(self):
+        self.assertEqual(exemplos.configuracao(), exemplos.CONFIGURACOES["A"])
+        self.assertEqual(exemplos.CONFIGURACOES["A"], exemplos.Configuracao(por_tema=2, maximo=16, rodizio=False, correcoes=0))
+        with override_settings(EXEMPLOS_CONFIG="C"):
+            self.assertEqual(exemplos.configuracao().correcoes, 8)
+
+    def test_o_proprio_laudo_nao_serve_de_exemplo(self):
+        self._par("sono", "deste laudo", laudo=self.laudo)
+        self._par("sono", "de outro laudo", laudo=self.outro)
+        self._par("sono", "do gemini")
+        textos = {p["texto"] for p in exemplos.pares(self.dona, laudo=self.laudo)}
+        self.assertEqual(textos, {"de outro laudo", "do gemini"})
+        self._corrigido(self.laudo, "sono", palavras("a"), palavras("b"))
+        self.assertEqual(exemplos.correcoes(self.dona, laudo=self.laudo), [])
+        self.assertEqual(len(exemplos.correcoes(self.dona, laudo=self.outro)), 1)
+
+    def test_correcoes_uma_por_tema_sem_edicao_pequena_e_com_motivos(self):
+        self._corrigido(self.outro, "sono", palavras("a"), palavras("b"), motivos=["rebuscado", "curto"], minutos=1)
+        self._corrigido(self.outro, "sono", palavras("c"), palavras("d"), minutos=30)  # mais antiga do mesmo tema
+        quase_igual = palavras("e", 97) + " x y z"
+        self._corrigido(self.outro, "social", palavras("e"), quase_igual)  # mudou 3%: fica de fora
+        self._corrigido(self.outro, "escola", palavras("f"), palavras("g"), reedicao=palavras("h"), minutos=5)
+        resultado = exemplos.correcoes(self.dona, maximo=8)
+        self.assertEqual([c["tema"] for c in resultado], ["sono", "escola"])
+        self.assertEqual(resultado[0]["ia"], palavras("a"))
+        self.assertEqual(resultado[0]["motivos"], ["Rebuscado", "Ficou curto"])
+        self.assertEqual((resultado[1]["ia"], resultado[1]["ela"]), (palavras("f"), palavras("h")))
+        self.assertEqual(len(exemplos.correcoes(self.dona, maximo=1)), 1)
+        self.assertEqual([c["tema"] for c in exemplos.correcoes(self.dona, temas_presentes=["escola"])], ["escola"])
+
+    def test_prompt_so_traz_correcoes_quando_ha(self):
+        sem = prompt.instrucao_sistema(secoes.ANAMNESE, {}, [])
+        self.assertNotIn("Correções que ela fez", sem)
+        com = prompt.instrucao_sistema(
+            secoes.ANAMNESE, {}, [], correcoes=[{"tema": "sono", "ia": "antes", "ela": "depois", "motivos": ["Rebuscado"]}]
+        )
+        self.assertIn("Correções que ela fez", com)
+        self.assertIn("O que ela achou ruim: rebuscado", com)
+        self.assertIn("A IA escreveu:\nantes\n\nEla corrigiu para:\ndepois", com)
+
+    def test_preparar_usa_a_configuracao_escolhida(self):
+        self._corrigido(self.outro, "sono", palavras("a"), palavras("b"))
+        padrao, _ = servico.preparar(self.laudo, secoes.ANAMNESE, "Escreva.", do_zero=True)
+        self.assertNotIn("Correções que ela fez", padrao)
+        com, _ = servico.preparar(self.laudo, secoes.ANAMNESE, "Escreva.", do_zero=True, config="C")
+        self.assertIn("Correções que ela fez", com)
+        self.assertIn(palavras("b"), com)
+
+    def test_edicoes_por_mes_mede_quanto_ela_corrigiu(self):
+        self._corrigido(self.laudo, "sono", palavras("a"), palavras("b"))  # reescreveu tudo
+        self._corrigido(self.laudo, "social", palavras("c"), palavras("c", 90) + " " + palavras("z", 10))  # mudou 10%
+        p = Paragrafo.objects.create(laudo=self.laudo, tema="escola")
+        Versao.objects.create(paragrafo=p, numero=1, texto="aprovado sem editar", origem=Versao.GERACAO)
+        Paragrafo.objects.create(laudo=self.outro, tema="lazer").versoes.create(numero=1, texto="só dela", origem=Versao.EDICAO)
+        mes = timezone.now().strftime("%Y-%m")
+        self.assertEqual(exemplos.edicoes_por_mes(self.dona), [(mes, 3, 2, 67, 55)])
+        self.client.force_login(self.dona)
+        self.assertContains(self.client.get("/estatisticas/"), "55% do texto")
+
+    def test_avaliar_geracao_compara_configuracoes(self):
+        import tempfile
+        from pathlib import Path
+
+        p = Paragrafo.objects.create(laudo=self.laudo, tema="sono")
+        Versao.objects.create(paragrafo=p, numero=1, texto=TEXTO_LONGO, origem=Versao.EDICAO)
+        self._corrigido(self.outro, "sono", palavras("a"), palavras("b"))
+        with tempfile.TemporaryDirectory() as pasta, \
+                mock.patch.object(gemini, "gerar", return_value=resposta(par("N1", "sono"))) as gerar, \
+                mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            saida = Path(pasta) / "rel.md"
+            call_command(
+                "avaliar_geracao", "--laudo", str(self.laudo.id), "--config", "A", "--config", "C",
+                "--rodadas", "2", "--exemplos", "", "--saida", str(saida), stdout=io.StringIO(),
+            )
+            relatorio = saida.read_text(encoding="utf-8")
+        self.assertIn("| A | 2 | 1.000 |", relatorio)
+        self.assertIn("| C | 2 | 1.000 |", relatorio)
+        self.assertIn("(config C, rodada 2)", relatorio)
+        prompts = [chamada.args[0] for chamada in gerar.call_args_list]
+        self.assertTrue(any("Correções que ela fez" in s for s in prompts))
+        self.assertFalse(all("Correções que ela fez" in s for s in prompts))

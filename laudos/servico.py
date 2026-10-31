@@ -20,7 +20,6 @@ geração é retomada do zero, até `TENTATIVAS_MAXIMAS` vezes. Nada é gravado 
 laudo antes do fim, então recomeçar não duplica texto.
 """
 
-import difflib
 import json
 import logging
 import threading
@@ -112,7 +111,7 @@ def _material(laudo, secao, do_zero=False):
 
 
 def _mudanca(base, texto):
-    return difflib.SequenceMatcher(None, base.split(), texto.split()).ratio()
+    return exemplos.semelhanca(base, texto)
 
 
 def _secao_resultante(laudo, secao, paragrafos, do_zero=False):
@@ -274,20 +273,24 @@ def _ids_unicos(resposta):
             p.id = f"N{contador}"
 
 
-def preparar(laudo, secao, texto_usuaria, mensagem_id=None, do_zero=False, candidatos_estilo=None):
+def preparar(laudo, secao, texto_usuaria, mensagem_id=None, do_zero=False, candidatos_estilo=None, config=None):
     """Prompt do sistema e conteúdo do pedido para uma mensagem da psicóloga.
 
-    `candidatos_estilo` troca os laudos base do banco por outros (o comando de avaliação usa).
+    `candidatos_estilo` troca os laudos base do banco por outros e `config` escolhe outra
+    configuração de exemplos (o comando de avaliação usa os dois).
     """
     caso = perfil.do_texto(laudo.anamnese)
+    config = exemplos.configuracao(config)
     tipos_presentes = None if do_zero else (
         sorted({p.tema for p in laudo.paragrafos.filter(ativo=True, secao=secao.chave)}) or None
     )
     sistema = prompt.instrucao_sistema(
         secao,
         exemplos.estilo(secao.chave, caso, candidatos_estilo),
-        exemplos.pares(laudo.dono, secao.chave, tipos_presentes, caso["faixa"]),
+        exemplos.pares(laudo.dono, secao.chave, tipos_presentes, caso["faixa"], laudo=laudo, config=config),
         exemplos.reforcos(laudo.dono, secao.chave),
+        exemplos.correcoes(laudo.dono, secao.chave, tipos_presentes, laudo=laudo, maximo=config.correcoes)
+        if config.correcoes else (),
     )
     return sistema, _conteudo(laudo, secao, texto_usuaria, mensagem_id, do_zero)
 

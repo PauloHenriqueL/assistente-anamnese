@@ -185,6 +185,9 @@ IA_MODELOS = [
     ).strip().strip("\"'").split("|")
     if "=" in item
 ]
+# Quantos exemplos aprovados e correções dela entram no prompt (laudos/exemplos.py, CONFIGURACOES).
+# "A" é o comportamento original; troque só depois de comparar com avaliar_geracao --config.
+EXEMPLOS_CONFIG = os.environ.get("EXEMPLOS_CONFIG", "A").strip().upper()
 
 # Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")

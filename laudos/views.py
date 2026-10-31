@@ -181,5 +181,6 @@ def estatisticas(request):
                 (secoes.secao(x["secao"]).titulo, secoes.secao(x["secao"]).rotulo_tipo(x["tema"]), x["n"]) for x in likes_por_tema
             ],
             "reforcos": [(s.titulo, exemplos.reforcos(request.user, s.chave)) for s in secoes.SECOES if exemplos.reforcos(request.user, s.chave)],
+            "edicoes_por_mes": exemplos.edicoes_por_mes(request.user),
         },
     )

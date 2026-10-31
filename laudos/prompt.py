@@ -69,7 +69,7 @@ def cabecalho_tipos(secao):
     return "\n## Tipos de bloco desta seção, na ordem do laudo\n"
 
 
-def bloco_exemplos(secao, estilo, pares):
+def bloco_exemplos(secao, estilo, pares, correcoes=()):
     partes = []
     if estilo:
         partes.append(
@@ -87,10 +87,23 @@ def bloco_exemplos(secao, estilo, pares):
         )
         for i, par in enumerate(pares, 1):
             partes.append(f"### Exemplo {i}, tipo {par['tema']}\nMaterial:\n{par['trecho_origem']}\n\nBloco aprovado:\n{par['texto']}")
+    if correcoes:
+        partes.append(
+            "## Correções que ela fez em blocos escritos pela IA\n"
+            "Repare no que ela mudou: é o que ela espera de você desde a primeira versão. "
+            "O conteúdo é de outros pacientes."
+        )
+        for i, c in enumerate(correcoes, 1):
+            motivos = ", ".join(c["motivos"]).lower()
+            partes.append(
+                f"### Correção {i}, tipo {c['tema']}\n"
+                + (f"O que ela achou ruim: {motivos}\n" if motivos else "")
+                + f"A IA escreveu:\n{c['ia']}\n\nEla corrigiu para:\n{c['ela']}"
+            )
     return "\n\n".join(partes)
 
 
-def instrucao_sistema(secao, estilo, pares, regras_extra=""):
+def instrucao_sistema(secao, estilo, pares, regras_extra="", correcoes=()):
     texto = (
         BASE
         + f"\n## Seção desta conversa: {secao.titulo}\n{secao.regras.strip()}\n"
@@ -99,7 +112,7 @@ def instrucao_sistema(secao, estilo, pares, regras_extra=""):
     )
     if regras_extra:
         texto += "\n\n## Ajustes recentes pedidos por ela\n" + regras_extra
-    exemplos = bloco_exemplos(secao, estilo, pares)
+    exemplos = bloco_exemplos(secao, estilo, pares, correcoes)
     if exemplos:
         texto += "\n\n" + exemplos
     return texto
