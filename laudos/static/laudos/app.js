@@ -8,19 +8,29 @@
   const esperar = (segundos) => new Promise((pronto) => setTimeout(pronto, segundos * 1000));
 
   // Recado no canto da tela, no lugar do alert(): não trava a página e some sozinho ou no X.
-  function recado(texto, tipo = "erro") {
+  // `acao` = {rotulo, aoClicar} põe um botão no recado (o Desfazer da exclusão).
+  function recado(texto, tipo = "erro", acao = null) {
     let caixa = document.getElementById("recado");
     if (!caixa) {
       caixa = document.createElement("div");
       caixa.id = "recado";
       caixa.className = "recado";
       caixa.setAttribute("role", "alert");
-      caixa.innerHTML = '<p></p><button type="button" class="fechar" aria-label="Fechar">×</button>';
+      caixa.innerHTML =
+        '<p></p><button type="button" class="botao fantasma acao" hidden></button>' +
+        '<button type="button" class="fechar" aria-label="Fechar">×</button>';
       caixa.querySelector(".fechar").addEventListener("click", () => caixa.remove());
       document.body.appendChild(caixa);
     }
     caixa.dataset.tipo = tipo;
     caixa.querySelector("p").textContent = texto;
+    const botaoAcao = caixa.querySelector(".acao");
+    botaoAcao.hidden = !acao;
+    botaoAcao.onclick = null;
+    if (acao) {
+      botaoAcao.textContent = acao.rotulo;
+      botaoAcao.onclick = () => { caixa.remove(); acao.aoClicar(); };
+    }
     clearTimeout(caixa.prazo);
     caixa.prazo = setTimeout(() => caixa.remove(), 12000);
   }
@@ -62,6 +72,7 @@
   }
 
   // Conversa
+  let abrirInsercao = null;  // definido abaixo, onde a tela sabe enviar e acompanhar a IA
   const laudo = document.querySelector(".laudo");
   const caixa = document.getElementById("caixa");
   if (laudo && caixa) {
@@ -169,6 +180,35 @@
     campo.addEventListener("keydown", (evento) => {
       if (evento.key === "Enter" && (evento.ctrlKey || evento.metaKey)) caixa.requestSubmit();
     });
+
+    // Inserir tema: ela escolhe tema e posição; a IA escreve só esse bloco, pelo mesmo caminho da conversa.
+    const dialogoInserir = document.getElementById("dialogo-inserir");
+    abrirInsercao = async (depois) => {
+      if (botao.disabled) {
+        recado("A IA ainda está escrevendo. Espere ela terminar para inserir um tema.");
+        return;
+      }
+      const form = dialogoInserir.querySelector("form");
+      form.reset();
+      if (form.depois_de) form.depois_de.value = depois || "";
+      if ((await abrir(dialogoInserir)) !== "ok") return;
+      const insercao = { tema: form.tema.value, titulo: form.titulo.value.trim(), depois_de: form.depois_de?.value || null };
+      if (!insercao.tema && !insercao.titulo) {
+        recado("Escolha um tema da lista ou escreva um nome para o tema.");
+        return;
+      }
+      botao.disabled = true;
+      try {
+        await enviar(laudo.dataset.urlMensagem, {
+          texto: form.instrucao.value, modelo: modelo.value, pensar: pensar.checked, insercao,
+        });
+        aguardar();
+      } catch (erro) {
+        botao.disabled = false;
+        if (erro.status === 409) { aguardar(); return; }
+        recado(erro.message);
+      }
+    };
   }
 
   // Like, deslike e edição
@@ -185,6 +225,10 @@
   document.addEventListener("click", async (evento) => {
     const botao = evento.target.closest("button[data-acao]");
     if (!botao) return;
+    if (botao.dataset.acao === "inserir") {
+      if (abrirInsercao) abrirInsercao(botao.dataset.depois);
+      return;
+    }
     const cartao = botao.closest("[data-versao]");
     const id = cartao.dataset.versao;
     if (botao.dataset.acao === "copiar") {
@@ -217,6 +261,22 @@
         if ((await abrir(dialogoEditar)) !== "ok") return;
         const motivos = [...form.querySelectorAll("[name=motivo]:checked")].map((c) => c.value);
         await enviar(`/versoes/${id}/editar/`, { texto: form.texto.value, motivos, comentario: form.comentario.value });
+      } else if (botao.dataset.acao === "excluir") {
+        const paragrafo = cartao.dataset.paragrafo;
+        await enviar(`/paragrafos/${paragrafo}/excluir/`);
+        cartao.hidden = true;
+        recado("Bloco excluído.", "sucesso", {
+          rotulo: "Desfazer",
+          aoClicar: async () => {
+            try {
+              await enviar(`/paragrafos/${paragrafo}/restaurar/`);
+              window.location.reload();
+            } catch (erro) {
+              recado(erro.message);
+            }
+          },
+        });
+        return;
       }
       window.location.reload();
     } catch (erro) {

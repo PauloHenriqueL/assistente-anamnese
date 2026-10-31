@@ -72,6 +72,8 @@
           <h2>{{ secao.titulo|capfirst }}</h2>
           {% if paragrafos %}
             <div class="direita">
+              <button type="button" class="botao" data-acao="inserir" data-depois="">
+                {% include 'laudos/componentes/icone.html' with nome='mais' tamanho=15 %} <span>{% if secao.ordem_livre %}Inserir tema{% else %}Inserir bloco{% endif %}</span></button>
               <button type="button" class="botao" id="copiar" data-url="{% url 'texto_secao' laudo.id secao.chave %}" data-rotulo="Copiar seção">
                 {% include 'laudos/componentes/icone.html' with nome='copiar' tamanho=15 %} <span>Copiar seção</span></button>
             </div>
@@ -135,6 +137,45 @@
       <div class="acoes">
         <button value="cancelar" class="botao fantasma">Cancelar</button>
         <button value="ok" class="botao primario">Salvar versão</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dialogo-inserir" class="modal largo">
+  <form method="dialog">
+    <header><h3>{% if secao.ordem_livre %}Inserir tema{% else %}Inserir bloco{% endif %}</h3></header>
+    <div class="modal-corpo">
+      <p class="nota">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>A IA escreve só este bloco, com o que as anotações trazem sobre o assunto. Os outros parágrafos não mudam.</span></p>
+      <div class="campos-inserir">
+        <label class="campo">
+          <span class="rotulo">{% if secao.ordem_livre %}Tema{% else %}Tipo de bloco{% endif %}</span>
+          <select name="tema">
+            <option value="">Escolha…</option>
+            {% for chave, rotulo, existe in tipos_para_inserir %}{% if chave != "outro" %}<option value="{{ chave }}"{% if existe %} disabled{% endif %}>{{ rotulo }}{% if existe %} (já existe){% endif %}</option>{% endif %}{% endfor %}
+          </select>
+        </label>
+        <label class="campo">
+          <span class="rotulo">ou um nome próprio</span>
+          <input type="text" name="titulo" maxlength="80" placeholder="Ex.: Relação com os irmãos">
+        </label>
+      </div>
+      {% if secao.ordem_livre %}
+        <label class="campo">
+          <span class="rotulo">Posição</span>
+          <select name="depois_de">
+            <option value="">No início dos temas</option>
+            {% for id, rotulo in temas_do_meio %}<option value="{{ id }}">Depois de «{{ rotulo }}»</option>{% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      <label class="campo">
+        <span class="rotulo">Orientação para a IA, se quiser</span>
+        <textarea name="instrucao" rows="3" placeholder="Ex.: use o que anotei sobre a relação com a irmã mais velha"></textarea>
+      </label>
+      <div class="acoes">
+        <button value="cancelar" class="botao fantasma">Cancelar</button>
+        <button value="ok" class="botao primario">Inserir e escrever</button>
       </div>
     </div>
   </form>

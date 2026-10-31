@@ -175,6 +175,9 @@ code { background: var(--cream-2); padding: 1px 5px; border-radius: var(--raio);
 
 /* ── Botões ─────────────────────────────────────────────── */
 
+/* O atributo hidden sempre esconde, mesmo em elementos com display próprio (.botao, .paragrafo). */
+[hidden] { display: none !important; }
+
 .botao {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   padding: 7px 12px; border-radius: var(--raio);
@@ -189,7 +192,7 @@ code { background: var(--cream-2); padding: 1px 5px; border-radius: var(--raio);
 .botao.fantasma { border-color: transparent; color: var(--ink-soft); }
 .botao.fantasma:hover { background: var(--cream-2); color: var(--ink); }
 .botao-like:hover { color: var(--success) !important; }
-.botao-deslike:hover { color: var(--danger) !important; }
+.botao-deslike:hover, .botao-excluir:hover { color: var(--danger) !important; }
 
 .botao-icone {
   display: inline-flex; align-items: center; justify-content: center;
@@ -224,13 +227,13 @@ code { background: var(--cream-2); padding: 1px 5px; border-radius: var(--raio);
 .campo .obrigatorio { color: var(--danger); }
 .campo .apagado { display: block; margin-top: 4px; }
 
-input[type='text'], textarea {
+input[type='text'], textarea, .modal select {
   width: 100%; padding: 9px 12px;
   border: 1px solid var(--line); border-radius: var(--raio);
   background: var(--cream); color: var(--ink); font: inherit;
 }
 input::placeholder, textarea::placeholder { color: var(--muted); }
-input:focus, textarea:focus { outline: none; border-color: var(--marrs-dark); }
+input:focus, textarea:focus, .modal select:focus { outline: none; border-color: var(--marrs-dark); }
 textarea { resize: vertical; line-height: 1.5; }
 input.arquivo {
   width: 100%; padding: 8px; font: inherit; color: var(--ink-soft);
@@ -374,6 +377,7 @@ dialog.modal::backdrop { background: rgba(0,0,0,.6); }
 .motivos-anteriores legend { padding: 0; margin-bottom: 6px; font-size: 14px; color: var(--ink); }
 .motivos-anteriores .opcoes { margin-bottom: 10px; }
 .motivos-anteriores .campo { margin-bottom: 0; }
+.campos-inserir { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; margin-top: 16px; }
 
 /* ── Utilidades ─────────────────────────────────────────── */
 
@@ -396,7 +400,7 @@ dialog.modal::backdrop { background: rgba(0,0,0,.6); }
   .sidebar { display: none; }
   .bloco-marca { width: auto; border-right: 0; }
   .topo-titulo { display: none; }
-  .opcoes { grid-template-columns: 1fr; }
+  .opcoes, .campos-inserir { grid-template-columns: 1fr; }
   thead th, tbody td { padding: 10px 12px; }
   .barra-pct { width: 40px; }
 }
@@ -499,4 +503,5 @@ input[type='password']:focus { outline: none; border-color: var(--marrs-dark); }
 }
 .recado[data-tipo="sucesso"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
 .recado p { margin: 0; flex: 1; }
+.recado .acao { padding: 2px 8px; color: inherit; font-weight: 500; text-decoration: underline; }
 .recado .fechar { border: 0; background: none; color: inherit; font-size: 20px; line-height: 1; cursor: pointer; padding: 0 2px; }

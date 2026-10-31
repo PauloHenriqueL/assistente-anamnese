@@ -1128,3 +1128,117 @@ class AprendizadoTestes(TestCase):
         prompts = [chamada.args[0] for chamada in gerar.call_args_list]
         self.assertTrue(any("Correções que ela fez" in s for s in prompts))
         self.assertFalse(all("Correções que ela fez" in s for s in prompts))
+
+
+class InserirExcluirTestes(TestCase):
+    def setUp(self):
+        self.dona = usuaria()
+        self.client.force_login(self.dona)
+        self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ana", anamnese="Sono: insônia. Irmãos: briga com a irmã.")
+        self.p = {}
+        for tema, posicao in [("gestacao", 0), ("sono", 0), ("ansiedade", 1), ("saude", 0)]:
+            par_ = Paragrafo.objects.create(laudo=self.laudo, secao="4.2", tema=tema, posicao=posicao)
+            Versao.objects.create(paragrafo=par_, numero=1, texto=f"Texto de {tema}.", origem=Versao.GERACAO)
+            self.p[tema] = par_
+        self.url = f"/laudos/{self.laudo.id}/secao/4.2/mensagem/"
+
+    def _ordem(self):
+        return [p.rotulo for p in self.laudo.paragrafos_atuais("4.2")]
+
+    def _inserir(self, insercao, texto="", blocos=None, remover=None, chave="4.2"):
+        blocos = blocos or (lambda: [par("N1", insercao.get("tema") or "outro", texto="Texto novo do tema.")])
+        with mock.patch.object(gemini, "gerar", side_effect=lambda *a, **k: resposta(*blocos(), remover=remover)) as gerar, \
+                mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            r = self.client.post(
+                f"/laudos/{self.laudo.id}/secao/{chave}/mensagem/", {"texto": texto, "insercao": insercao},
+                content_type="application/json",
+            )
+        return r, gerar
+
+    def test_excluir_e_desfazer(self):
+        sono = self.p["sono"]
+        self.assertEqual(self.client.post(f"/paragrafos/{sono.id}/excluir/").status_code, 200)
+        self.assertNotIn("Sono", self._ordem())
+        self.assertNotIn("Texto de sono.", self.laudo.texto_secao("4.2"))
+        self.client.post(f"/paragrafos/{sono.id}/restaurar/")
+        self.assertIn("Sono", self._ordem())
+        self.assertFalse(Avaliacao.objects.exists())  # excluir não é deslike
+
+    def test_excluir_de_outra_usuaria_ou_com_ia_escrevendo(self):
+        self.client.force_login(usuaria("bia"))
+        self.assertEqual(self.client.post(f"/paragrafos/{self.p['sono'].id}/excluir/").status_code, 404)
+        self.client.force_login(self.dona)
+        Mensagem.objects.create(laudo=self.laudo, secao="4.2", papel=Mensagem.USUARIA, texto="ajuste", pendente=True,
+                                vivo_em=timezone.now())
+        self.assertEqual(self.client.post(f"/paragrafos/{self.p['sono'].id}/excluir/").status_code, 409)
+        self.assertTrue(Paragrafo.objects.get(id=self.p["sono"].id).ativo)
+
+    def test_inserir_tema_da_lista_na_posicao_sem_mexer_nos_outros(self):
+        ansiedade = self.p["ansiedade"]
+        r, gerar = self._inserir(
+            {"tema": "social", "depois_de": self.p["sono"].id}, texto="use o que anotei sobre amigos",
+            blocos=lambda: [par(f"P{ansiedade.id}", "ansiedade", texto="mexido"), par("N1", "social", texto="Vida social nova.")],
+            remover=[f"P{self.p['sono'].id}"],
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._ordem(), ["- Gestação/Parto", "Sono", "Vida social", "Ansiedade", "- Saúde"])
+        self.assertEqual(ansiedade.versoes.count(), 1)
+        social = Paragrafo.objects.get(tema="social")
+        self.assertEqual(social.versao_atual().texto, "Vida social nova.")
+        pedida = Mensagem.objects.filter(papel=Mensagem.USUARIA).latest("id")
+        self.assertEqual(pedida.texto, "Inserir o tema «Vida social» depois de «Sono». use o que anotei sobre amigos")
+        self.assertIn("Ela inseriu pela tela um tema novo nesta seção: «Vida social»", gerar.call_args.args[1])
+
+    def test_inserir_com_nome_proprio_no_inicio(self):
+        r, _ = self._inserir({"tema": "", "titulo": "Relação com os irmãos"})
+        self.assertEqual(r.status_code, 200)
+        novo = Paragrafo.objects.get(titulo="Relação com os irmãos")
+        self.assertEqual(novo.tema, "outro")
+        self.assertEqual(self._ordem(), ["- Gestação/Parto", "Relação com os irmãos", "Sono", "Ansiedade", "- Saúde"])
+        self.assertIn("assunto «Relação com os irmãos»", servico._estado_atual(self.laudo, secoes.ANAMNESE))
+        self.assertContains(self.client.get(f"/laudos/{self.laudo.id}/secao/4.2/"), "Relação com os irmãos")
+        # Um segundo tema com nome próprio também entra: outro pode repetir.
+        r, _ = self._inserir({"titulo": "Relação com os avós", "depois_de": self.p["ansiedade"].id})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._ordem()[-2:], ["Relação com os avós", "- Saúde"])
+
+    def test_inserir_abaixo_da_abertura_vai_para_o_inicio_e_abaixo_da_linha_vai_para_o_fim(self):
+        self._inserir({"tema": "social", "depois_de": self.p["gestacao"].id})
+        self.assertEqual(self._ordem()[1], "Vida social")
+        self.assertIn("no início dos temas", Mensagem.objects.filter(papel=Mensagem.USUARIA).latest("id").texto)
+        self._inserir({"tema": "humor", "depois_de": self.p["saude"].id})
+        self.assertEqual(self._ordem()[-2:], ["Humor e regulação emocional", "- Saúde"])
+
+    def test_inserir_recusa_tema_repetido_e_posicao_invalida(self):
+        r, gerar = self._inserir({"tema": "sono"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Já existe um parágrafo de Sono", r.json()["erro"])
+        outro = Laudo.objects.create(dono=self.dona, paciente="Bia", anamnese="x")
+        alheio = Paragrafo.objects.create(laudo=outro, secao="4.2", tema="sono")
+        r, _ = self._inserir({"tema": "social", "depois_de": alheio.id})
+        self.assertEqual(r.status_code, 400)
+        r, _ = self._inserir({"tema": "inexistente"})
+        self.assertEqual(r.status_code, 400)
+        gerar.assert_not_called()
+        self.assertFalse(Paragrafo.objects.filter(tema="social").exists())
+
+    def test_tela_desabilita_tema_que_ja_existe(self):
+        tela = self.client.get(f"/laudos/{self.laudo.id}/secao/4.2/").content.decode()
+        self.assertIn('<option value="sono" disabled>Sono (já existe)</option>', tela)
+        self.assertIn('<option value="social">Vida social</option>', tela)
+        self.assertIn(f'<option value="{self.p["sono"].id}">Depois de «Sono»</option>', tela)
+        self.assertNotIn(f'<option value="{self.p["saude"].id}">', tela)
+
+    def test_inserir_em_secao_de_ordem_fixa_vai_para_o_lugar_do_tipo(self):
+        for tipo in ("psiquiatria", "escola"):
+            par_ = Paragrafo.objects.create(laudo=self.laudo, secao="6", tema=tipo)
+            Versao.objects.create(paragrafo=par_, numero=1, texto=f"Texto {tipo}.", origem=Versao.GERACAO)
+        r, _ = self._inserir({"tema": "psicologia"}, chave="6")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais("6")], ["psiquiatria", "psicologia", "escola"])
+
+    def test_ia_que_nao_escreve_o_tema_novo_vira_erro(self):
+        r, _ = self._inserir({"tema": "social"}, blocos=lambda: [par(f"P{self.p['sono'].id}", "sono", texto="mexido")])
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("não escreveu o tema novo", Mensagem.objects.filter(papel=Mensagem.IA).latest("id").erro)
+        self.assertEqual(self.p["sono"].versoes.count(), 1)

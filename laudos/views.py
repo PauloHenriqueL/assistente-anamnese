@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 
 from . import exemplos, gemini, secoes, servico
 from .extracao import ArquivoInvalido, texto_do_arquivo
-from .models import Avaliacao, Exemplo, Laudo, Versao
+from .models import Avaliacao, Exemplo, Laudo, Paragrafo, Versao
 
 
 def _laudo_da_usuaria(request, laudo_id):
@@ -19,6 +19,10 @@ def _laudo_da_usuaria(request, laudo_id):
 
 def _versao_da_usuaria(request, versao_id):
     return get_object_or_404(Versao, id=versao_id, paragrafo__laudo__dono=request.user)
+
+
+def _paragrafo_da_usuaria(request, paragrafo_id):
+    return get_object_or_404(Paragrafo, id=paragrafo_id, laudo__dono=request.user)
 
 
 def lista(request):
@@ -76,6 +80,10 @@ def secao(request, laudo_id, chave):
     pendente = servico.em_andamento(laudo, s.chave)
     paragrafos = [(p, p.versao_atual()) for p in laudo.paragrafos_atuais(s.chave)]
     situacao = {item["secao"].chave: item for item in servico.situacao_das_secoes(laudo)}
+    # Para o pop-up de inserir: na ordem livre, tema já presente não pode ser escolhido de novo.
+    presentes = {p.tema for p, _ in paragrafos} if s.ordem_livre else set()
+    fixos = s.tipos_abertura | s.tipos_finais
+    tipos_para_inserir = [(chave, rotulo, chave in presentes and chave != "outro") for chave, rotulo in s.tipos]
     return render(
         request,
         "laudos/secao.html",
@@ -90,6 +98,8 @@ def secao(request, laudo_id, chave):
             "motivos": Avaliacao.MOTIVOS,
             "pendente": pendente,
             "modelos": settings.IA_MODELOS,
+            "tipos_para_inserir": tipos_para_inserir,
+            "temas_do_meio": [(p.id, p.rotulo) for p, _ in paragrafos if p.tema not in fixos] if s.ordem_livre else [],
         },
     )
 
@@ -101,6 +111,34 @@ def _json(request):
         return {}
 
 
+def _insercao(laudo, s, pedido):
+    """(insercao, texto que aparece na conversa) do tema que ela mandou inserir pela tela, ou (None, erro)."""
+    titulo = str(pedido.get("titulo", "")).strip()[:80]
+    tema = "outro" if titulo and "outro" in s.chaves_tipos else str(pedido.get("tema", ""))
+    if tema not in s.chaves_tipos:
+        return None, "Escolha um tema da lista ou escreva um nome para o tema."
+    ativos = laudo.paragrafos.filter(secao=s.chave, ativo=True)
+    if s.ordem_livre and tema != "outro" and ativos.filter(tema=tema).exists():
+        return None, f"Já existe um parágrafo de {s.rotulo_tipo(tema)}. Para separar um assunto, dê um nome próprio ao tema."
+    depois = None
+    if s.ordem_livre and pedido.get("depois_de"):
+        depois = ativos.filter(id=pedido["depois_de"]).first() if str(pedido["depois_de"]).isdigit() else None
+        if depois is None:
+            return None, "O parágrafo escolhido como posição não existe mais. Recarregue a página."
+    if depois and depois.tema in s.tipos_abertura:
+        depois = None  # depois da abertura = antes do primeiro tema
+    insercao = {"tema": tema, "titulo": titulo, "depois_de": depois.id if depois else None}
+    texto = f"Inserir o tema «{servico.rotulo_insercao(s, insercao)}»"
+    if s.ordem_livre and tema not in s.tipos_abertura | s.tipos_finais:
+        if depois is None:
+            texto += " no início dos temas"
+        elif depois.tema in s.tipos_finais:
+            texto += " no fim dos temas"
+        else:
+            texto += f" depois de «{depois.rotulo}»"
+    return insercao, texto + "."
+
+
 @require_POST
 def mensagem(request, laudo_id, chave):
     """Começa a responder e devolve na hora. A tela acompanha pelo andamento."""
@@ -108,7 +146,13 @@ def mensagem(request, laudo_id, chave):
     s = _secao(chave)
     dados = _json(request)
     escolha = gemini.escolha_valida(dados.get("modelo", ""), dados.get("pensar", True) is not False)
-    if servico.iniciar_mensagem(laudo, dados.get("texto", ""), s.chave, escolha) is None:
+    texto, insercao = dados.get("texto", ""), None
+    if isinstance(dados.get("insercao"), dict):
+        insercao, visivel = _insercao(laudo, s, dados["insercao"])
+        if insercao is None:
+            return JsonResponse({"ok": False, "erro": visivel}, status=400)
+        texto = f"{visivel} {texto.strip()}".strip()
+    if servico.iniciar_mensagem(laudo, texto, s.chave, escolha, insercao) is None:
         return JsonResponse(
             {"ok": False, "erro": "A IA ainda está escrevendo a resposta anterior. Espere ela terminar."}, status=409
         )
@@ -146,6 +190,34 @@ def editar(request, versao_id):
     if not texto:
         return JsonResponse({"ok": False, "erro": "O texto não pode ficar vazio."}, status=400)
     servico.editar_versao(versao, texto, _motivos(dados), dados.get("comentario", "").strip())
+    return JsonResponse({"ok": True})
+
+
+def _ocupado(paragrafo):
+    if servico.em_andamento(paragrafo.laudo, paragrafo.secao):
+        return JsonResponse(
+            {"ok": False, "erro": "A IA está escrevendo nesta seção. Espere ela terminar para excluir."}, status=409
+        )
+    return None
+
+
+@require_POST
+def excluir(request, paragrafo_id):
+    paragrafo = _paragrafo_da_usuaria(request, paragrafo_id)
+    resposta = _ocupado(paragrafo)
+    if resposta:
+        return resposta
+    servico.excluir_paragrafo(paragrafo)
+    return JsonResponse({"ok": True})
+
+
+@require_POST
+def restaurar(request, paragrafo_id):
+    paragrafo = _paragrafo_da_usuaria(request, paragrafo_id)
+    resposta = _ocupado(paragrafo)
+    if resposta:
+        return resposta
+    servico.restaurar_paragrafo(paragrafo)
     return JsonResponse({"ok": True})
 
 

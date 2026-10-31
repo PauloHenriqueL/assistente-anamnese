@@ -18,5 +18,7 @@ urlpatterns = [
     path("laudos/<int:laudo_id>/secao/<str:chave>/texto/", views.texto_secao, name="texto_secao"),
     path("versoes/<int:versao_id>/avaliar/", views.avaliar, name="avaliar"),
     path("versoes/<int:versao_id>/editar/", views.editar, name="editar"),
+    path("paragrafos/<int:paragrafo_id>/excluir/", views.excluir, name="excluir"),
+    path("paragrafos/<int:paragrafo_id>/restaurar/", views.restaurar, name="restaurar"),
     path("estatisticas/", views.estatisticas, name="estatisticas"),
 ]

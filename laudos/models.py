@@ -57,6 +57,10 @@ class Mensagem(models.Model):
         null=True, blank=True, help_text="Último sinal de vida da geração; parado há muito tempo, ela é retomada."
     )
     tentativas = models.PositiveSmallIntegerField(default=0, help_text="Quantas vezes a geração desta mensagem começou.")
+    insercao = models.JSONField(
+        default=dict, blank=True,
+        help_text="Tema que ela mandou inserir pela tela: {tema, titulo, depois_de}. A IA escreve só esse bloco.",
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -71,11 +75,14 @@ class Paragrafo(models.Model):
         default=0, help_text="Ordem do parágrafo: entre os do mesmo tema ou, nas seções de ordem livre, na seção."
     )
     ativo = models.BooleanField(default=True)
+    titulo = models.CharField(
+        max_length=80, blank=True, help_text="Nome próprio do tema, dado por ela ao inserir; vazio = rótulo do tipo."
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
 
     @property
     def rotulo(self):
-        return secoes.secao(self.secao).rotulo_tipo(self.tema)
+        return self.titulo or secoes.secao(self.secao).rotulo_tipo(self.tema)
 
     def versao_atual(self):
         versoes = list(self.versoes.all())

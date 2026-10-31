@@ -1,5 +1,5 @@
 {% with av=versao.avaliacao %}
-<article class="paragrafo{% if av.tipo == 'like' %} curtido{% elif av.tipo == 'deslike' %} descurtido{% endif %}" data-versao="{{ versao.id }}" data-origem="{{ versao.origem }}">
+<article class="paragrafo{% if av.tipo == 'like' %} curtido{% elif av.tipo == 'deslike' %} descurtido{% endif %}" data-versao="{{ versao.id }}" data-origem="{{ versao.origem }}" data-paragrafo="{{ versao.paragrafo_id }}">
   <header>
     <span class="distintivo marca">{{ versao.paragrafo.rotulo }}</span>
     <span class="apagado">versão {{ versao.numero }} · {{ versao.get_origem_display }} · {{ versao.palavras }} palavras</span>
@@ -22,6 +22,12 @@
     {% if editavel %}
       <button type="button" class="botao fantasma" data-acao="editar">
         {% include 'laudos/componentes/icone.html' with nome='editar' tamanho=15 %} Editar</button>
+      {% if secao.ordem_livre %}
+        <button type="button" class="botao fantasma" data-acao="inserir" data-depois="{{ versao.paragrafo_id }}" title="Inserir um tema novo logo abaixo deste">
+          {% include 'laudos/componentes/icone.html' with nome='mais' tamanho=15 %} Inserir abaixo</button>
+      {% endif %}
+      <button type="button" class="botao fantasma botao-excluir" data-acao="excluir" title="Tirar este bloco da seção">
+        {% include 'laudos/componentes/icone.html' with nome='lixeira' tamanho=15 %} Excluir</button>
     {% endif %}
     {% if av %}
       <span class="distintivo {% if av.tipo == 'like' %}sucesso{% else %}perigo{% endif %} direita">

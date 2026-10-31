@@ -54,7 +54,8 @@ def _estado_atual(laudo, secao):
     for p in laudo.paragrafos_atuais(secao.chave):
         v = p.versao_atual()
         if v:
-            linhas.append(f"[P{p.id}] tipo {p.tema}\n{v.texto}")
+            assunto = f", assunto «{p.titulo}»" if p.titulo else ""
+            linhas.append(f"[P{p.id}] tipo {p.tema}{assunto}\n{v.texto}")
     return "\n\n".join(linhas)
 
 
@@ -264,6 +265,67 @@ def _aplicar(laudo, secao, resposta, avisos, mensagem_ia):
         )
 
 
+def rotulo_insercao(secao, insercao):
+    return insercao.get("titulo") or secao.rotulo_tipo(insercao["tema"])
+
+
+def _pedido_insercao(secao, insercao, texto_usuaria):
+    return (
+        f"Ela inseriu pela tela um tema novo nesta seção: «{rotulo_insercao(secao, insercao)}» "
+        f"(tipo {insercao['tema']}). Escreva um único bloco novo, com id N1 e modo geracao, só com o que o "
+        "material traz sobre esse assunto. Não altere, não repita e não remova os outros blocos: devolva só "
+        f"o bloco novo e remover vazio.\nO que ela escreveu: {texto_usuaria}"
+    )
+
+
+def _so_o_bloco_inserido(resposta, insercao):
+    """O prompt pede um bloco só; o código garante. Blocos existentes que a IA tenha mexido são ignorados."""
+    novos = [p for p in resposta.paragrafos if not p.id.startswith("P")]
+    if not novos:
+        raise gemini.ErroGemini("A IA não escreveu o tema novo. Tente inserir de novo.")
+    novo = novos[0]
+    novo.id, novo.tema, novo.modo = "N1", insercao["tema"], gemini.Modo.geracao
+    resposta.paragrafos = [novo]
+    resposta.remover = []
+
+
+def _lugar_da_insercao(laudo, secao, insercao):
+    """Posição do tema inserido. Na ordem livre, logo depois de `depois_de`, renumerando os temas seguintes."""
+    if not secao.ordem_livre:
+        return laudo.paragrafos.filter(secao=secao.chave, tema=insercao["tema"]).count()
+    fixos = secao.tipos_abertura | secao.tipos_finais
+    if insercao["tema"] in fixos:
+        return 0  # abertura e linhas de dados têm lugar fixo pelo tipo
+    meio = [p for p in laudo.paragrafos_atuais(secao.chave) if p.tema not in fixos]
+    ids = [p.id for p in meio]
+    depois = insercao.get("depois_de")
+    if depois in ids:
+        lugar = ids.index(depois) + 1
+    elif depois and laudo.paragrafos.filter(id=depois, tema__in=secao.tipos_finais).exists():
+        lugar = len(meio)
+    else:
+        lugar = 0
+    for i, p in enumerate(meio):
+        nova = i if i < lugar else i + 1
+        if p.posicao != nova:
+            p.posicao = nova
+            p.save(update_fields=["posicao"])
+    return lugar
+
+
+def _criar_inserido(laudo, secao, resposta, avisos, insercao):
+    """Cria o parágrafo do tema inserido no lugar escolhido; o _aplicar grava o texto como em qualquer bloco."""
+    paragrafo = Paragrafo.objects.create(
+        laudo=laudo, secao=secao.chave, tema=insercao["tema"], titulo=insercao.get("titulo", ""),
+        posicao=_lugar_da_insercao(laudo, secao, insercao),
+    )
+    novo_id = f"P{paragrafo.id}"
+    for p in resposta.paragrafos:
+        avisos = {novo_id if chave == p.id else chave: aviso for chave, aviso in avisos.items()}
+        p.id, p.tema = novo_id, insercao["tema"]
+    return avisos
+
+
 def _ids_unicos(resposta):
     """Dá um id próprio a cada bloco novo, para a verificação e a reescrita saberem de quem se fala."""
     contador = 0
@@ -273,16 +335,19 @@ def _ids_unicos(resposta):
             p.id = f"N{contador}"
 
 
-def preparar(laudo, secao, texto_usuaria, mensagem_id=None, do_zero=False, candidatos_estilo=None, config=None):
+def preparar(
+    laudo, secao, texto_usuaria, mensagem_id=None, do_zero=False, candidatos_estilo=None, config=None, tema_novo=None
+):
     """Prompt do sistema e conteúdo do pedido para uma mensagem da psicóloga.
 
     `candidatos_estilo` troca os laudos base do banco por outros e `config` escolhe outra
-    configuração de exemplos (o comando de avaliação usa os dois).
+    configuração de exemplos (o comando de avaliação usa os dois). `tema_novo` é o tema que ela
+    mandou inserir: entra entre os presentes para vir com exemplos dele.
     """
     caso = perfil.do_texto(laudo.anamnese)
     config = exemplos.configuracao(config)
     tipos_presentes = None if do_zero else (
-        sorted({p.tema for p in laudo.paragrafos.filter(ativo=True, secao=secao.chave)}) or None
+        sorted({p.tema for p in laudo.paragrafos.filter(ativo=True, secao=secao.chave)} | ({tema_novo} - {None})) or None
     )
     sistema = prompt.instrucao_sistema(
         secao,
@@ -306,14 +371,19 @@ def _existentes_por_tema(laudo, secao, do_zero):
     return existentes
 
 
-def executar(laudo, secao, sistema, conteudo, do_zero=False, escolha=None):
+def executar(laudo, secao, sistema, conteudo, do_zero=False, escolha=None, insercao=None):
     """Gera, verifica e reescreve uma vez. Só lê o banco: devolve (resposta, avisos).
 
     `escolha` = (modelo, raciocínio) da tela; vale para gerar e reescrever. A verificação usa o padrão.
+    Com `insercao`, fica só o bloco do tema inserido, e ele não é juntado a outro do mesmo tema.
     """
     resposta = gemini.gerar(sistema, conteudo, secao.chave, escolha)
     _ids_unicos(resposta)
-    juntados = conferencia.juntar_temas_repetidos(secao, resposta, _existentes_por_tema(laudo, secao, do_zero))
+    if insercao:
+        _so_o_bloco_inserido(resposta, insercao)
+        juntados = []
+    else:
+        juntados = conferencia.juntar_temas_repetidos(secao, resposta, _existentes_por_tema(laudo, secao, do_zero))
     avisos = {}
     if resposta.paragrafos:
         problemas = _verificar(laudo, secao, resposta.paragrafos, do_zero)
@@ -353,9 +423,13 @@ def responder(mensagem_usuaria):
     """Roda o fluxo para uma mensagem já gravada e grava a resposta ou o erro."""
     laudo, secao = mensagem_usuaria.laudo, secoes.secao(mensagem_usuaria.secao)
     escolha = (mensagem_usuaria.modelo, mensagem_usuaria.raciocinio) if mensagem_usuaria.raciocinio else None
+    insercao = mensagem_usuaria.insercao or None
     try:
-        sistema, conteudo = preparar(laudo, secao, mensagem_usuaria.texto, mensagem_usuaria.id)
-        resposta, avisos = executar(laudo, secao, sistema, conteudo, escolha=escolha)
+        texto = _pedido_insercao(secao, insercao, mensagem_usuaria.texto) if insercao else mensagem_usuaria.texto
+        sistema, conteudo = preparar(
+            laudo, secao, texto, mensagem_usuaria.id, tema_novo=insercao["tema"] if insercao else None
+        )
+        resposta, avisos = executar(laudo, secao, sistema, conteudo, escolha=escolha, insercao=insercao)
         _conexao_fresca()
         with transaction.atomic():
             if not _liberar(mensagem_usuaria):
@@ -366,6 +440,8 @@ def responder(mensagem_usuaria):
                 laudo=laudo, secao=secao.chave, papel=Mensagem.IA, texto=resposta.mensagem.strip(),
                 modelo=_rotulo_escolha(mensagem_usuaria),
             )
+            if insercao:
+                avisos = _criar_inserido(laudo, secao, resposta, avisos, insercao)
             _aplicar(laudo, secao, resposta, avisos, mensagem_ia)
         return mensagem_ia
     except gemini.ErroGemini as erro:
@@ -389,19 +465,20 @@ def _conexao_fresca():
         close_old_connections()
 
 
-def _registrar(laudo, texto_usuaria, secao, pendente, escolha=None):
+def _registrar(laudo, texto_usuaria, secao, pendente, escolha=None, insercao=None):
     texto_usuaria = (texto_usuaria or "").strip() or secao.pedido_inicial
     modelo, raciocinio = escolha or ("", "")
     return Mensagem.objects.create(
         laudo=laudo, secao=secao.chave, papel=Mensagem.USUARIA, texto=texto_usuaria, pendente=pendente,
         modelo=modelo, raciocinio=raciocinio, vivo_em=timezone.now() if pendente else None,
-        tentativas=1 if pendente else 0,
+        tentativas=1 if pendente else 0, insercao=insercao or {},
     )
 
 
-def processar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None):
+def processar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None, insercao=None):
     """Fluxo completo na hora, sem thread. Devolve a mensagem da IA."""
-    return responder(_registrar(laudo, texto_usuaria, secoes.secao(chave_secao), pendente=True, escolha=escolha))
+    secao = secoes.secao(chave_secao)
+    return responder(_registrar(laudo, texto_usuaria, secao, pendente=True, escolha=escolha, insercao=insercao))
 
 
 def _bater(mensagem_id, parar):
@@ -473,15 +550,18 @@ def em_andamento(laudo, chave_secao):
     return pendente
 
 
-def iniciar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None):
-    """Grava a mensagem e começa a responder. Devolve None se já houver uma geração em andamento."""
+def iniciar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None, insercao=None):
+    """Grava a mensagem e começa a responder. Devolve None se já houver uma geração em andamento.
+
+    `insercao` = {tema, titulo, depois_de}: ela pediu pela tela um tema novo; a IA escreve só esse bloco.
+    """
     secao = secoes.secao(chave_secao)
     with transaction.atomic():
         # Trava o laudo: dois envios ao mesmo tempo (duas abas, clique duplo) não começam duas gerações.
         Laudo.objects.select_for_update().filter(id=laudo.id).first()
         if em_andamento(laudo, secao.chave):
             return None
-        mensagem = _registrar(laudo, texto_usuaria, secao, pendente=True, escolha=escolha)
+        mensagem = _registrar(laudo, texto_usuaria, secao, pendente=True, escolha=escolha, insercao=insercao)
     if settings.IA_EM_SEGUNDO_PLANO:
         _disparar(mensagem)
     else:
@@ -543,6 +623,17 @@ def editar_versao(versao, texto, motivos=(), comentario=""):
             avaliar_versao(versao, Avaliacao.DESLIKE, motivos, comentario)
         avaliar_versao(nova, Avaliacao.LIKE)
     return nova
+
+
+def excluir_paragrafo(paragrafo):
+    """Tira o bloco da seção. Ele fica no banco, desativado, para o Desfazer da tela."""
+    paragrafo.ativo = False
+    paragrafo.save(update_fields=["ativo"])
+
+
+def restaurar_paragrafo(paragrafo):
+    paragrafo.ativo = True
+    paragrafo.save(update_fields=["ativo"])
 
 
 def situacao_das_secoes(laudo):

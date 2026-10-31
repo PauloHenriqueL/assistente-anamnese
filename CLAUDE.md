@@ -46,6 +46,8 @@ Projeto Django `config/`, app único `laudos/`. O fluxo de IA está isolado em a
 3. **Reescreve uma vez** só os blocos com problema; a reescrita é verificada de novo e o que ainda sobrar vira **aviso** no bloco (campos `faltou`/`sem_apoio` da `Versao`).
 4. **Aplica** (`_aplicar`) em transação: cria uma nova `Versao` por bloco afetado, sem tocar nos demais.
 
+**Inserir tema pela tela** (`Mensagem.insercao` = {tema, titulo, depois_de}) usa o mesmo fluxo, mas o código garante um bloco só: `_so_o_bloco_inserido` descarta o resto da resposta e pula a junção de temas, e `_criar_inserido` cria o parágrafo logo depois de `depois_de` (renumerando os temas seguintes), com o nome próprio em `Paragrafo.titulo`. Excluir um bloco só o desativa (`ativo=False`), para o Desfazer da tela.
+
 A tela não espera esse fluxo: `iniciar_mensagem` grava a mensagem com `pendente=True` e roda `responder` numa thread (`IA_EM_SEGUNDO_PLANO`); a tela consulta `andamento/` até a resposta ou o erro serem gravados. A mensagem pendente é a fila: a thread grava um sinal de vida (`Mensagem.vivo_em`, a cada `BATIMENTO`); se o servidor reiniciar no meio, o sinal para e a próxima consulta do `andamento/` retoma a geração do zero (`_retomar`, até `TENTATIVAS_MAXIMAS`). Nada vai para o laudo antes do fim, então recomeçar não duplica texto. Pendência mais velha que `PRAZO_DA_GERACAO` vira erro. `preparar`/`executar` só leem o banco e são reaproveitados por `avaliar_geracao`.
 
 O "material do caso" montado para a IA = anamnese + texto atual das seções de base (`secao.contexto`) + conversa recente daquela seção. Contexto curto e fixo por design.
