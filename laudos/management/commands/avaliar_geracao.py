@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from laudos import exemplos as exemplos_ia
-from laudos import secoes, servico
+from laudos import gemini, secoes, servico
 from laudos.conferencia import VERBOS_DE_RELATO
 from laudos.management.commands.carregar_exemplos import ARQUIVO_REAL, blocos_do_arquivo
 from laudos.models import Exemplo, Laudo
@@ -51,16 +51,24 @@ class Command(BaseCommand):
                 laudos.append(Laudo.objects.get(id=laudo_id))
             except Laudo.DoesNotExist:
                 raise CommandError(f"Laudo {laudo_id} não existe neste banco.")
-        detalhes, resultados = [], defaultdict(list)
+        detalhes, resultados, falhas = [], defaultdict(list), Counter()
         for nome in configs:
             for obj in laudos:
                 for rodada in range(1, rodadas + 1):
                     self.stdout.write(f"Config {nome}, laudo {obj.id}, rodada {rodada}: gerando a seção {s.chave}...")
+                    self.stdout.flush()
                     inicio = time.monotonic()
                     sistema, conteudo = servico.preparar(
                         obj, s, s.pedido_inicial, do_zero=True, candidatos_estilo=candidatos, config=nome
                     )
-                    resposta, avisos = servico.executar(obj, s, sistema, conteudo, do_zero=True)
+                    try:
+                        resposta, avisos = servico.executar(obj, s, sistema, conteudo, do_zero=True)
+                    except gemini.ErroGemini as erro:
+                        # Uma geração que falha (tempo esgotado, por exemplo) não derruba as outras.
+                        falhas[nome] += 1
+                        detalhes += [f"## Laudo {obj.id} (config {nome}, rodada {rodada}): falhou", "", f"> {erro.__cause__ or erro}", ""]
+                        self._gravar(saida, s, resultados, falhas, detalhes)
+                        continue
                     segundos = time.monotonic() - inicio
                     blocos = sorted(
                         enumerate(resposta.paragrafos), key=lambda par: s.chave_ordem(par[1].tema, par[0], par[0])
@@ -72,24 +80,31 @@ class Command(BaseCommand):
                     )
                     detalhes += linhas
                     resultados[nome].append(medidas)
-        partes = [f"# Avaliação da geração da seção {s.titulo}", ""] + self._resumo(resultados) + detalhes
-        Path(saida).write_text("\n".join(partes), encoding="utf-8")
+                    # Grava a cada geração: uma queda no meio não perde o que já foi gerado (e pago).
+                    self._gravar(saida, s, resultados, falhas, detalhes)
+        self._gravar(saida, s, resultados, falhas, detalhes)
         self.stdout.write(self.style.SUCCESS(f"Relatório em {saida}"))
 
-    def _resumo(self, resultados):
+    def _gravar(self, saida, s, resultados, falhas, detalhes):
+        partes = [f"# Avaliação da geração da seção {s.titulo}", ""] + self._resumo(resultados, falhas) + detalhes
+        Path(saida).write_text("\n".join(partes), encoding="utf-8")
+
+    def _resumo(self, resultados, falhas):
         """Média por configuração. Melhor = semelhança maior sem mais itens sem apoio."""
         linhas = [
             "## Resumo por configuração",
             "",
-            "| Config | Gerações | Semelhança média | Sem apoio por geração | Pode ter faltado por geração | Prompt (caracteres) | Tempo médio |",
-            "|---|---|---|---|---|---|---|",
+            "| Config | Gerações | Falhas | Semelhança média | Sem apoio por geração | Pode ter faltado por geração "
+            "| Prompt (caracteres) | Tempo médio |",
+            "|---|---|---|---|---|---|---|---|",
         ]
-        for nome, medidas in resultados.items():
+        for nome in dict.fromkeys(list(resultados) + list(falhas)):
+            medidas = resultados.get(nome, [])
             n = len(medidas)
-            media = lambda chave: sum(m[chave] for m in medidas) / n
+            media = lambda chave: sum(m[chave] for m in medidas) / n if n else 0
             linhas.append(
-                f"| {nome} | {n} | {media('semelhanca'):.3f} | {media('sem_apoio'):.1f} | {media('faltou'):.1f} "
-                f"| {media('prompt'):.0f} | {media('segundos'):.0f} s |"
+                f"| {nome} | {n} | {falhas[nome]} | {media('semelhanca'):.3f} | {media('sem_apoio'):.1f} "
+                f"| {media('faltou'):.1f} | {media('prompt'):.0f} | {media('segundos'):.0f} s |"
             )
         return linhas + [""]
 

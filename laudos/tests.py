@@ -1122,12 +1122,31 @@ class AprendizadoTestes(TestCase):
                 "--rodadas", "2", "--exemplos", "", "--saida", str(saida), stdout=io.StringIO(),
             )
             relatorio = saida.read_text(encoding="utf-8")
-        self.assertIn("| A | 2 | 1.000 |", relatorio)
-        self.assertIn("| C | 2 | 1.000 |", relatorio)
+        self.assertIn("| A | 2 | 0 | 1.000 |", relatorio)
+        self.assertIn("| C | 2 | 0 | 1.000 |", relatorio)
         self.assertIn("(config C, rodada 2)", relatorio)
         prompts = [chamada.args[0] for chamada in gerar.call_args_list]
         self.assertTrue(any("Correções que ela fez" in s for s in prompts))
         self.assertFalse(all("Correções que ela fez" in s for s in prompts))
+
+    def test_avaliar_geracao_segue_quando_uma_geracao_falha(self):
+        import tempfile
+        from pathlib import Path
+
+        p = Paragrafo.objects.create(laudo=self.laudo, tema="sono")
+        Versao.objects.create(paragrafo=p, numero=1, texto=TEXTO_LONGO, origem=Versao.EDICAO)
+        efeitos = [gemini.ErroGemini("tempo esgotado"), resposta(par("N1", "sono"))]
+        with tempfile.TemporaryDirectory() as pasta, \
+                mock.patch.object(gemini, "gerar", side_effect=efeitos), \
+                mock.patch.object(gemini, "verificar", return_value=verificacao()):
+            saida = Path(pasta) / "rel.md"
+            call_command(
+                "avaliar_geracao", "--laudo", str(self.laudo.id), "--config", "A", "--rodadas", "2",
+                "--exemplos", "", "--saida", str(saida), stdout=io.StringIO(),
+            )
+            relatorio = saida.read_text(encoding="utf-8")
+        self.assertIn("| A | 1 | 1 | 1.000 |", relatorio)
+        self.assertIn("(config A, rodada 1): falhou", relatorio)
 
 
 class InserirExcluirTestes(TestCase):
