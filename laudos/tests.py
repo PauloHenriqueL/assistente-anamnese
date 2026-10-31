@@ -208,6 +208,46 @@ class AvaliacaoTestes(TestCase):
         atual = self.versao.paragrafo.versao_atual()
         self.assertEqual((atual.numero, atual.origem, atual.texto), (2, Versao.EDICAO, "minha versão"))
 
+    def _editar(self, versao, texto, **extra):
+        return self.client.post(f"/versoes/{versao.id}/editar/", {"texto": texto, **extra}, content_type="application/json")
+
+    def test_editar_texto_da_ia_e_deslike_no_antigo_e_like_no_novo(self):
+        self._editar(self.versao, "minha versão", motivos=["rebuscado", "inexistente"], comentario="palavras difíceis")
+        nova = self.versao.paragrafo.versao_atual()
+        deslike = Avaliacao.objects.get(versao=self.versao)
+        self.assertEqual((deslike.tipo, deslike.motivos, deslike.comentario), ("deslike", ["rebuscado"], "palavras difíceis"))
+        self.assertEqual(Avaliacao.objects.get(versao=nova).tipo, "like")
+        ex = Exemplo.objects.get()
+        self.assertEqual((ex.versao, ex.fonte, ex.trecho_origem, ex.texto, ex.dono, ex.ativo), (nova, Exemplo.LIKE, "insônia", "minha versão", self.dona, True))
+        self.assertEqual(exemplos.pares(self.dona, "4.2", ["sono"])[0]["texto"], "minha versão")
+
+    def test_editar_sem_motivo_nao_dilui_os_reforcos(self):
+        for _ in range(3):
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"])
+        self._editar(self.versao, "minha versão")
+        self.assertTrue(Avaliacao.objects.filter(versao=self.versao, tipo="deslike", motivos=[]).exists())
+        for _ in range(10):  # sem o filtro, 3 em 14 ficaria abaixo dos 30% e o reforço sumiria
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=[])
+        contagem, total = exemplos.contagem_motivos(self.dona)
+        self.assertEqual((contagem["curto"], total), (3, 3))
+        self.assertIn("curtos", exemplos.reforcos(self.dona))
+
+    def test_reeditar_texto_dela_troca_o_exemplo_sem_deslike(self):
+        self._editar(self.versao, "primeira edição")
+        primeira = self.versao.paragrafo.versao_atual()
+        self._editar(primeira, "segunda edição", motivos=["curto"])
+        segunda = self.versao.paragrafo.versao_atual()
+        self.assertFalse(Avaliacao.objects.filter(versao=primeira, tipo="deslike").exists())
+        self.assertEqual(list(Exemplo.objects.filter(ativo=True).values_list("versao", flat=True)), [segunda.id])
+        self.assertEqual(Avaliacao.objects.filter(tipo="deslike").count(), 1)  # só o do texto da IA
+
+    def test_edicao_reenviada_nao_duplica_avaliacoes(self):
+        for _ in range(2):
+            self._editar(self.versao, "minha versão", motivos=["curto"])
+        self.assertEqual(self.versao.paragrafo.versoes.count(), 2)
+        self.assertEqual(Avaliacao.objects.count(), 2)
+        self.assertEqual(Exemplo.objects.count(), 1)
+
 
 class TelasEExemplosTestes(TestCase):
     def setUp(self):

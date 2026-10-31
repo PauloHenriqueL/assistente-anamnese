@@ -31,7 +31,7 @@ from django.db import close_old_connections, connection, connections, transactio
 from django.utils import timezone
 
 from . import conferencia, exemplos, gemini, perfil, prompt, secoes
-from .models import Laudo, Mensagem, Paragrafo, Versao
+from .models import Avaliacao, Exemplo, Laudo, Mensagem, Paragrafo, Versao
 
 logger = logging.getLogger(__name__)
 
@@ -486,23 +486,60 @@ def iniciar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None):
     return mensagem
 
 
-def editar_versao(versao, texto):
+def avaliar_versao(versao, tipo, motivos=(), comentario=""):
+    """Like ou deslike da dona do laudo. O like vira par few-shot; o deslike desliga o par da versão."""
+    motivos = list(motivos)
+    # A tela reenvia quando a conexão cai no meio; a mesma avaliação repetida em seguida não conta duas vezes.
+    repetida = Avaliacao.objects.filter(
+        versao=versao, tipo=tipo, motivos=motivos, comentario=comentario,
+        criado_em__gte=timezone.now() - timedelta(minutes=2),
+    ).exists()
+    if not repetida:
+        Avaliacao.objects.create(versao=versao, tipo=tipo, motivos=motivos, comentario=comentario)
+    if tipo == Avaliacao.LIKE:
+        Exemplo.objects.update_or_create(
+            versao=versao,
+            defaults={
+                "tema": versao.paragrafo.tema,
+                "secao": versao.paragrafo.secao,
+                "trecho_origem": "\n".join(versao.trechos_origem),
+                "texto": versao.texto,
+                "fonte": Exemplo.LIKE,
+                "dono": versao.paragrafo.laudo.dono,
+                "ativo": True,
+            },
+        )
+    else:
+        Exemplo.objects.filter(versao=versao).update(ativo=False)
+
+
+def editar_versao(versao, texto, motivos=(), comentario=""):
     """Edição feita pela própria psicóloga na tela, sem passar pela IA.
 
+    Editar é avaliar: o texto dela vira bom exemplo (like) e o texto da IA que ela
+    substituiu ganha deslike com os motivos que ela marcar (podem ser nenhum).
+    Reeditar um texto que já era dela só troca o exemplo, sem deslike.
     Texto igual ao da versão atual não cria outra: a tela reenvia quando a conexão cai no meio.
     """
     paragrafo = versao.paragrafo
     atual = paragrafo.versao_atual()
     if atual and atual.texto == texto.strip():
         return atual
-    numero = (paragrafo.versoes.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
-    return Versao.objects.create(
-        paragrafo=paragrafo,
-        numero=numero,
-        texto=texto.strip(),
-        trechos_origem=versao.trechos_origem,
-        origem=Versao.EDICAO,
-    )
+    with transaction.atomic():
+        numero = (paragrafo.versoes.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
+        nova = Versao.objects.create(
+            paragrafo=paragrafo,
+            numero=numero,
+            texto=texto.strip(),
+            trechos_origem=versao.trechos_origem,
+            origem=Versao.EDICAO,
+        )
+        if versao.origem == Versao.EDICAO:
+            Exemplo.objects.filter(versao=versao).update(ativo=False)
+        else:
+            avaliar_versao(versao, Avaliacao.DESLIKE, motivos, comentario)
+        avaliar_versao(nova, Avaliacao.LIKE)
+    return nova
 
 
 def situacao_das_secoes(laudo):

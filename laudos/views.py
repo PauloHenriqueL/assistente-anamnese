@@ -1,12 +1,10 @@
 import json
-from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
 from django.db.models import Count
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import exemplos, gemini, secoes, servico
@@ -123,6 +121,11 @@ def andamento(request, laudo_id, chave):
     return JsonResponse({"ok": True, "pendente": servico.em_andamento(laudo, s.chave) is not None})
 
 
+def _motivos(dados):
+    validos = {chave for chave, _ in Avaliacao.MOTIVOS}
+    return [m for m in dados.get("motivos", []) if m in validos]
+
+
 @require_POST
 def avaliar(request, versao_id):
     versao = _versao_da_usuaria(request, versao_id)
@@ -130,41 +133,19 @@ def avaliar(request, versao_id):
     tipo = dados.get("tipo")
     if tipo not in (Avaliacao.LIKE, Avaliacao.DESLIKE):
         return JsonResponse({"ok": False, "erro": "Tipo de avaliação inválido."}, status=400)
-    validos = {chave for chave, _ in Avaliacao.MOTIVOS}
-    motivos = [m for m in dados.get("motivos", []) if m in validos] if tipo == Avaliacao.DESLIKE else []
-    comentario = dados.get("comentario", "").strip()
-    # A tela reenvia quando a conexão cai no meio; a mesma avaliação repetida em seguida não conta duas vezes.
-    repetida = Avaliacao.objects.filter(
-        versao=versao, tipo=tipo, motivos=motivos, comentario=comentario,
-        criado_em__gte=timezone.now() - timedelta(minutes=2),
-    ).exists()
-    if not repetida:
-        Avaliacao.objects.create(versao=versao, tipo=tipo, motivos=motivos, comentario=comentario)
-    if tipo == Avaliacao.LIKE:
-        Exemplo.objects.update_or_create(
-            versao=versao,
-            defaults={
-                "tema": versao.paragrafo.tema,
-                "secao": versao.paragrafo.secao,
-                "trecho_origem": "\n".join(versao.trechos_origem),
-                "texto": versao.texto,
-                "fonte": Exemplo.LIKE,
-                "dono": request.user,
-                "ativo": True,
-            },
-        )
-    else:
-        Exemplo.objects.filter(versao=versao).update(ativo=False)
+    motivos = _motivos(dados) if tipo == Avaliacao.DESLIKE else []
+    servico.avaliar_versao(versao, tipo, motivos, dados.get("comentario", "").strip())
     return JsonResponse({"ok": True})
 
 
 @require_POST
 def editar(request, versao_id):
     versao = _versao_da_usuaria(request, versao_id)
-    texto = _json(request).get("texto", "").strip()
+    dados = _json(request)
+    texto = dados.get("texto", "").strip()
     if not texto:
         return JsonResponse({"ok": False, "erro": "O texto não pode ficar vazio."}, status=400)
-    servico.editar_versao(versao, texto)
+    servico.editar_versao(versao, texto, _motivos(dados), dados.get("comentario", "").strip())
     return JsonResponse({"ok": True})
 
 

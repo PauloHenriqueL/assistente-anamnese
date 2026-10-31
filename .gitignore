@@ -13,3 +13,4 @@ laudos_exemplos/
 
 # Exportação do Google Takeout com conversas do Gemini (dados de pacientes).
 gemini/
+.playwright-mcp/

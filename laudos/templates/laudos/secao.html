@@ -118,8 +118,20 @@
   <form method="dialog">
     <header><h3>Editar bloco</h3></header>
     <div class="modal-corpo">
-      <p class="nota">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>A sua edição vira uma nova versão e não é alterada pela IA.</span></p>
+      <p class="nota">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>A sua edição vira uma nova versão, não é alterada pela IA e passa a ser um bom exemplo para ela.</span></p>
       <textarea name="texto" rows="12"></textarea>
+      <fieldset class="motivos-anteriores">
+        <legend class="rotulo">O que estava ruim no texto anterior? <span class="apagado">(opcional)</span></legend>
+        <div class="opcoes">
+          {% for chave, rotulo in motivos %}
+            <label class="opcao"><input type="checkbox" name="motivo" value="{{ chave }}"> {{ rotulo }}</label>
+          {% endfor %}
+        </div>
+        <label class="campo">
+          <span class="rotulo">Comentário, se quiser</span>
+          <textarea name="comentario" rows="2"></textarea>
+        </label>
+      </fieldset>
       <div class="acoes">
         <button value="cancelar" class="botao fantasma">Cancelar</button>
         <button value="ok" class="botao primario">Salvar versão</button>

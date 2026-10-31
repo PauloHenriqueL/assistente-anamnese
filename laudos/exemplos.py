@@ -71,7 +71,8 @@ def pares(dono, secao="4.2", temas_presentes=None, faixa=""):
 
 
 def contagem_motivos(dono, secao=None, ultimos=None):
-    consulta = Avaliacao.objects.filter(tipo=Avaliacao.DESLIKE, versao__paragrafo__laudo__dono=dono)
+    # Deslike sem motivo (comum quando ela só reescreve o texto) não entra: diluiria os motivos reais.
+    consulta = Avaliacao.objects.filter(tipo=Avaliacao.DESLIKE, versao__paragrafo__laudo__dono=dono).exclude(motivos=[])
     if secao:
         consulta = consulta.filter(versao__paragrafo__secao=secao)
     consulta = consulta.order_by("-criado_em")

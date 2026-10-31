@@ -187,6 +187,17 @@
     if (!botao) return;
     const cartao = botao.closest("[data-versao]");
     const id = cartao.dataset.versao;
+    if (botao.dataset.acao === "copiar") {
+      const rotulo = botao.querySelector("span");
+      try {
+        await navigator.clipboard.writeText(cartao.querySelector(".texto").innerText.trim());
+        rotulo.textContent = "Copiado";
+        setTimeout(() => (rotulo.textContent = "Copiar"), 2000);
+      } catch (erro) {
+        recado("Não foi possível copiar. Selecione o texto e copie com Ctrl+C.");
+      }
+      return;
+    }
     try {
       if (botao.dataset.acao === "like") {
         await enviar(`/versoes/${id}/avaliar/`, { tipo: "like" });
@@ -197,10 +208,15 @@
         const motivos = [...form.querySelectorAll("[name=motivo]:checked")].map((c) => c.value);
         await enviar(`/versoes/${id}/avaliar/`, { tipo: "deslike", motivos, comentario: form.comentario.value });
       } else if (botao.dataset.acao === "editar") {
+        // Editar também avalia: o texto dela vira bom exemplo e o da IA ganha os motivos marcados.
+        // Texto que já era dela não pede motivos.
         const form = dialogoEditar.querySelector("form");
+        form.reset();
+        form.querySelector(".motivos-anteriores").hidden = cartao.dataset.origem === "edicao_usuaria";
         form.texto.value = cartao.querySelector(".texto").innerText.trim();
         if ((await abrir(dialogoEditar)) !== "ok") return;
-        await enviar(`/versoes/${id}/editar/`, { texto: form.texto.value });
+        const motivos = [...form.querySelectorAll("[name=motivo]:checked")].map((c) => c.value);
+        await enviar(`/versoes/${id}/editar/`, { texto: form.texto.value, motivos, comentario: form.comentario.value });
       }
       window.location.reload();
     } catch (erro) {

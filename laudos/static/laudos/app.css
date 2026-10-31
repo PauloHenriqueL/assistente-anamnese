@@ -370,6 +370,10 @@ dialog.modal::backdrop { background: rgba(0,0,0,.6); }
 .opcoes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 16px; }
 .opcao { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; }
 .opcao input { accent-color: var(--marrs); width: 16px; height: 16px; }
+.motivos-anteriores { border: 0; padding: 0; margin: 16px 0 0; min-width: 0; }
+.motivos-anteriores legend { padding: 0; margin-bottom: 6px; font-size: 14px; color: var(--ink); }
+.motivos-anteriores .opcoes { margin-bottom: 10px; }
+.motivos-anteriores .campo { margin-bottom: 0; }
 
 /* ── Utilidades ─────────────────────────────────────────── */
 
