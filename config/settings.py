@@ -164,7 +164,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 IA_PROVEDOR = os.environ.get("IA_PROVEDOR", "openai")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 # Modelo que escreve e reescreve, e modelo que confere o texto contra o material.
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-sol")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-luna")
 OPENAI_MODEL_VERIFICACAO = os.environ.get("OPENAI_MODEL_VERIFICACAO", "gpt-6-luna")
 # Esforço de raciocínio ("modo de pensar"): none, low, medium, high, xhigh ou max.
 # Vazio = modelo sem raciocínio, que recebe temperatura.
@@ -181,7 +181,7 @@ IA_EM_SEGUNDO_PLANO = os.environ.get("IA_EM_SEGUNDO_PLANO", "0" if _RODANDO_TEST
 IA_MODELOS = [
     tuple(parte.strip() for parte in item.split("=", 1))
     for item in os.environ.get(
-        "IA_MODELOS", "gpt-6-sol=Melhor qualidade|gpt-6-luna=Mais rápido e barato|gpt-5.4-mini=Econômico"
+        "IA_MODELOS", "gpt-6-luna=Mais rápido e barato|gpt-5.4-mini=Econômico"
     ).strip().strip("\"'").split("|")
     if "=" in item
 ]
