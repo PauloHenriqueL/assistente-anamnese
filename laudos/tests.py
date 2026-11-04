@@ -688,7 +688,17 @@ class ResistenciaTestes(TestCase):
         self.client.logout()
         r = self.client.get("/saude/", HTTP_HOST="10.0.0.5:10000")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), {"ok": True, "banco": True})
+        self.assertEqual(r.json(), {"ok": True})
+
+    def test_saude_nao_consulta_o_banco(self):
+        # O Render bate aqui o dia inteiro; uma consulta por batida não deixa o Neon dormir.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self.client.logout()
+        with CaptureQueriesContext(connection) as consultas:
+            self.client.get("/saude/")
+        self.assertEqual(len(consultas), 0)
 
     def test_edicao_reenviada_nao_cria_outra_versao(self):
         for _ in range(2):

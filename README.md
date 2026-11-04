@@ -55,7 +55,7 @@ Python 3.12, Django 5, SDKs da OpenAI e do Google Gen AI, Pydantic para os forma
 Render, plano pago (Starter, gerenciado pelo `render.yaml`), com Postgres do Neon via `DATABASE_URL`. O plano gratuito não serve: ele dorme sem uso e derruba a geração no meio.
 
 - O Gunicorn roda um processo com várias threads (`gunicorn.conf.py`).
-- O Render só promove um deploy quando `/saude/` responde, e essa checagem inclui o banco. A rota responde sem login.
+- O Render só promove um deploy quando `/saude/` responde. A rota responde sem login e **não consulta o banco**: o Render bate nela o dia todo, e uma consulta por batida impedia o Neon de dormir (banco acordado 24/7, pago).
 - As conexões com o Neon são conferidas antes do uso e mantidas com keepalive, porque ele fecha conexões paradas enquanto a IA pensa.
 - Os erros vão para o console e aparecem nos logs do Render.
 
