@@ -252,15 +252,16 @@
         const motivos = [...form.querySelectorAll("[name=motivo]:checked")].map((c) => c.value);
         await enviar(`/versoes/${id}/avaliar/`, { tipo: "deslike", motivos, comentario: form.comentario.value });
       } else if (botao.dataset.acao === "editar") {
-        // Editar também avalia: o texto dela vira bom exemplo e o da IA ganha os motivos marcados.
-        // Texto que já era dela não pede motivos.
+        // Para gestor, editar também avalia: o texto dele vira bom exemplo e o da IA ganha os motivos marcados.
+        // Texto que já era de uma pessoa não pede motivos. Analista não avalia: a tela dele nem traz os motivos.
         const form = dialogoEditar.querySelector("form");
         form.reset();
-        form.querySelector(".motivos-anteriores").hidden = cartao.dataset.origem === "edicao_usuaria";
+        const anteriores = form.querySelector(".motivos-anteriores");
+        if (anteriores) anteriores.hidden = cartao.dataset.origem === "edicao_usuaria";
         form.texto.value = cartao.querySelector(".texto").innerText.trim();
         if ((await abrir(dialogoEditar)) !== "ok") return;
         const motivos = [...form.querySelectorAll("[name=motivo]:checked")].map((c) => c.value);
-        await enviar(`/versoes/${id}/editar/`, { texto: form.texto.value, motivos, comentario: form.comentario.value });
+        await enviar(`/versoes/${id}/editar/`, { texto: form.texto.value, motivos, comentario: form.comentario?.value || "" });
       } else if (botao.dataset.acao === "excluir") {
         const paragrafo = cartao.dataset.paragrafo;
         await enviar(`/paragrafos/${paragrafo}/excluir/`);

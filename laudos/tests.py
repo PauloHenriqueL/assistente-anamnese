@@ -7,9 +7,9 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from . import exemplos, gemini, prompt, secoes, servico
+from . import exemplos, gemini, papeis, prompt, secoes, servico
 from .extracao import ArquivoInvalido, texto_do_arquivo
-from .models import Avaliacao, Exemplo, Laudo, Mensagem, Paragrafo, Versao
+from .models import Avaliacao, Exemplo, Laudo, Mensagem, Papel, Paragrafo, Versao
 
 class _SemRede:
     def __init__(self, *a, **k):
@@ -28,11 +28,13 @@ def tearDownModule():
         trava.stop()
 
 
-def usuaria(nome="ana", admin=False):
+def usuaria(nome="ana", admin=False, gestor=True, gestor_dela=None):
+    """Por padrão é gestora, que avalia os próprios laudos. `gestor=False` cria analista, vinculada a `gestor_dela`."""
     User = get_user_model()
-    if admin:
-        return User.objects.create_superuser(username=nome, password="Senha-forte-123")
-    return User.objects.create_user(username=nome, password="Senha-forte-123")
+    criar = User.objects.create_superuser if admin else User.objects.create_user
+    pessoa = criar(username=nome, password="Senha-forte-123")
+    Papel.objects.create(usuario=pessoa, tipo=Papel.GESTOR if gestor else Papel.ANALISTA, gestor=gestor_dela)
+    return pessoa
 
 
 TEXTO_LONGO = " ".join(["palavra"] * 100)
@@ -186,7 +188,7 @@ class AvaliacaoTestes(TestCase):
         self.assertEqual(r.status_code, 200)
         ex = Exemplo.objects.get()
         self.assertEqual((ex.fonte, ex.tema, ex.trecho_origem, ex.texto), (Exemplo.LIKE, "sono", "insônia", "texto aprovado"))
-        self.assertEqual(exemplos.pares(self.dona, "4.2", ["sono"])[0]["texto"], "texto aprovado")
+        self.assertEqual(exemplos.pares([self.dona], "4.2", ["sono"])[0]["texto"], "texto aprovado")
 
     def test_deslike_guarda_motivos_e_desativa_exemplo(self):
         self.client.post(f"/versoes/{self.versao.id}/avaliar/", {"tipo": "like"}, content_type="application/json")
@@ -201,9 +203,9 @@ class AvaliacaoTestes(TestCase):
 
     def test_reforco_aparece_quando_motivo_se_repete(self):
         for _ in range(3):
-            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"])
-        self.assertIn("curtos", exemplos.reforcos(self.dona))
-        self.assertIn("curtos", prompt.instrucao_sistema(secoes.ANAMNESE, {}, [], exemplos.reforcos(self.dona)))
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"], autor=self.dona)
+        self.assertIn("curtos", exemplos.reforcos([self.dona]))
+        self.assertIn("curtos", prompt.instrucao_sistema(secoes.ANAMNESE, {}, [], exemplos.reforcos([self.dona])))
 
     def test_edicao_da_usuaria_vira_nova_versao(self):
         self.client.post(f"/versoes/{self.versao.id}/editar/", {"texto": "minha versão"}, content_type="application/json")
@@ -221,18 +223,18 @@ class AvaliacaoTestes(TestCase):
         self.assertEqual(Avaliacao.objects.get(versao=nova).tipo, "like")
         ex = Exemplo.objects.get()
         self.assertEqual((ex.versao, ex.fonte, ex.trecho_origem, ex.texto, ex.dono, ex.ativo), (nova, Exemplo.LIKE, "insônia", "minha versão", self.dona, True))
-        self.assertEqual(exemplos.pares(self.dona, "4.2", ["sono"])[0]["texto"], "minha versão")
+        self.assertEqual(exemplos.pares([self.dona], "4.2", ["sono"])[0]["texto"], "minha versão")
 
     def test_editar_sem_motivo_nao_dilui_os_reforcos(self):
         for _ in range(3):
-            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"])
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"], autor=self.dona)
         self._editar(self.versao, "minha versão")
         self.assertTrue(Avaliacao.objects.filter(versao=self.versao, tipo="deslike", motivos=[]).exists())
         for _ in range(10):  # sem o filtro, 3 em 14 ficaria abaixo dos 30% e o reforço sumiria
-            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=[])
-        contagem, total = exemplos.contagem_motivos(self.dona)
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=[], autor=self.dona)
+        contagem, total = exemplos.contagem_motivos([self.dona])
         self.assertEqual((contagem["curto"], total), (3, 3))
-        self.assertIn("curtos", exemplos.reforcos(self.dona))
+        self.assertIn("curtos", exemplos.reforcos([self.dona]))
 
     def test_reeditar_texto_dela_troca_o_exemplo_sem_deslike(self):
         self._editar(self.versao, "primeira edição")
@@ -439,8 +441,8 @@ class AcessoTestes(TestCase):
         self.versao_ana.trechos_origem = ["insônia"]
         self.versao_ana.save()
         self.client.post(f"/versoes/{self.versao_ana.id}/avaliar/", {"tipo": "like"}, content_type="application/json")
-        self.assertEqual(len(exemplos.pares(self.ana)), 1)
-        self.assertEqual(exemplos.pares(self.bia), [])
+        self.assertEqual(len(exemplos.pares([self.ana])), 1)
+        self.assertEqual(exemplos.pares([self.bia]), [])
 
     def test_novo_laudo_pertence_a_quem_criou(self):
         self.client.force_login(self.bia)
@@ -462,6 +464,20 @@ class AdminTestes(TestCase):
         self.assertTrue(admin.is_superuser and admin.is_staff)
         self.assertEqual(User.objects.count(), 1)
         self.assertEqual(Laudo.objects.get().dono, admin)
+        self.assertTrue(papeis.eh_gestor(admin))  # numa instalação nova, é o administrador quem avalia
+
+    def test_admin_que_ja_existia_fica_com_o_papel_que_tem(self):
+        usuaria("Paulo", admin=True, gestor=False)
+        self._rodar()
+        self.assertFalse(papeis.eh_gestor(get_user_model().objects.get(username="Paulo")))
+
+    def test_pagina_do_usuario_no_admin_traz_o_papel(self):
+        admin = usuaria("Paulo", admin=True)
+        bia = usuaria("bia", gestor=False, gestor_dela=admin)
+        self.client.force_login(admin)
+        self.assertContains(self.client.get("/admin/auth/user/"), "Analista")
+        self.assertContains(self.client.get(f"/admin/auth/user/{bia.id}/change/"), "Gestor responsável")
+        self.assertEqual(self.client.get("/admin/auth/user/add/").status_code, 200)
 
     def test_nao_troca_senha_sem_pedir(self):
         self._rodar()
@@ -530,8 +546,8 @@ class SecoesTestes(TestCase):
         self._gerar("2", par("novo", "demanda", trechos=["queixa"]))
         versao = Versao.objects.get()
         self.client.post(f"/versoes/{versao.id}/avaliar/", {"tipo": "like"}, content_type="application/json")
-        self.assertEqual(len(exemplos.pares(self.dona, "2")), 1)
-        self.assertEqual(exemplos.pares(self.dona, "4.2"), [])
+        self.assertEqual(len(exemplos.pares([self.dona], "2")), 1)
+        self.assertEqual(exemplos.pares([self.dona], "4.2"), [])
 
     def test_tipo_de_bloco_de_outra_secao_vira_tipo_valido(self):
         self._gerar("5.1", par("novo", "sono"))
@@ -755,10 +771,10 @@ class PerfilEExemplosTestes(TestCase):
                                texto="criança", perfil={"faixa": "crianca"})
         Exemplo.objects.create(fonte=Exemplo.GEMINI, dono=dona, secao="4.2", tema="sono", trecho_origem="n",
                                texto="criança 2", perfil={"faixa": "crianca"})
-        textos = [p["texto"] for p in exemplos.pares(dona, "4.2", ["sono"], "adulto")]
+        textos = [p["texto"] for p in exemplos.pares([dona], "4.2", ["sono"], "adulto")]
         self.assertEqual(textos[0], "adulto")
         self.assertEqual(len(textos), exemplos.configuracao().por_tema)
-        self.assertEqual(exemplos.pares(usuaria("bia"), "4.2"), [])
+        self.assertEqual(exemplos.pares([usuaria("bia")], "4.2"), [])
 
     def test_carregar_exemplos_no_formato_novo(self):
         import json
@@ -856,7 +872,7 @@ class ImportarGeminiTestes(TestCase):
             for _ in range(2):
                 call_command("importar_gemini", str(arquivo), usuario="ana", stdout=io.StringIO())
         self.assertEqual(sorted(Exemplo.objects.values_list("grupo", flat=True)), ["c1", "c2"])
-        self.assertEqual(exemplos.pares(dona, "4.2", ["sono"], "adulto")[0]["texto"], "Texto bom.")
+        self.assertEqual(exemplos.pares([dona], "4.2", ["sono"], "adulto")[0]["texto"], "Texto bom.")
 
 
 class EscolhaDoModeloTestes(TestCase):
@@ -1039,11 +1055,11 @@ class AprendizadoTestes(TestCase):
         p = Paragrafo.objects.create(laudo=laudo, tema=tema)
         v1 = Versao.objects.create(paragrafo=p, numero=1, texto=ia, origem=Versao.GERACAO)
         if motivos:
-            Avaliacao.objects.create(versao=v1, tipo="deslike", motivos=list(motivos))
-        v2 = Versao.objects.create(paragrafo=p, numero=2, texto=ela, origem=Versao.EDICAO)
+            Avaliacao.objects.create(versao=v1, tipo="deslike", motivos=list(motivos), autor=self.dona)
+        v2 = Versao.objects.create(paragrafo=p, numero=2, texto=ela, origem=Versao.EDICAO, autor=self.dona)
         ultima = v2
         if reedicao:
-            ultima = Versao.objects.create(paragrafo=p, numero=3, texto=reedicao, origem=Versao.EDICAO)
+            ultima = Versao.objects.create(paragrafo=p, numero=3, texto=reedicao, origem=Versao.EDICAO, autor=self.dona)
         Versao.objects.filter(id=ultima.id).update(criado_em=timezone.now() - timedelta(minutes=minutos))
         return p
 
@@ -1054,8 +1070,8 @@ class AprendizadoTestes(TestCase):
         self._par("escola", "escola", minutos=20)
         com_rodizio = exemplos.Configuracao(por_tema=3, maximo=4, rodizio=True, correcoes=0)
         sem_rodizio = exemplos.Configuracao(por_tema=3, maximo=4, rodizio=False, correcoes=0)
-        self.assertEqual([p["texto"] for p in exemplos.pares(self.dona, config=com_rodizio)], ["sono 0", "social", "escola", "sono 1"])
-        self.assertEqual([p["texto"] for p in exemplos.pares(self.dona, config=sem_rodizio)], ["sono 0", "sono 1", "sono 2", "social"])
+        self.assertEqual([p["texto"] for p in exemplos.pares([self.dona], config=com_rodizio)], ["sono 0", "social", "escola", "sono 1"])
+        self.assertEqual([p["texto"] for p in exemplos.pares([self.dona], config=sem_rodizio)], ["sono 0", "sono 1", "sono 2", "social"])
 
     def test_configuracao_vem_do_ambiente_e_o_padrao_e_o_original(self):
         self.assertEqual(exemplos.configuracao(), exemplos.CONFIGURACOES["A"])
@@ -1067,11 +1083,11 @@ class AprendizadoTestes(TestCase):
         self._par("sono", "deste laudo", laudo=self.laudo)
         self._par("sono", "de outro laudo", laudo=self.outro)
         self._par("sono", "do gemini")
-        textos = {p["texto"] for p in exemplos.pares(self.dona, laudo=self.laudo)}
+        textos = {p["texto"] for p in exemplos.pares([self.dona], laudo=self.laudo)}
         self.assertEqual(textos, {"de outro laudo", "do gemini"})
         self._corrigido(self.laudo, "sono", palavras("a"), palavras("b"))
-        self.assertEqual(exemplos.correcoes(self.dona, laudo=self.laudo), [])
-        self.assertEqual(len(exemplos.correcoes(self.dona, laudo=self.outro)), 1)
+        self.assertEqual(exemplos.correcoes([self.dona], laudo=self.laudo), [])
+        self.assertEqual(len(exemplos.correcoes([self.dona], laudo=self.outro)), 1)
 
     def test_correcoes_uma_por_tema_sem_edicao_pequena_e_com_motivos(self):
         self._corrigido(self.outro, "sono", palavras("a"), palavras("b"), motivos=["rebuscado", "curto"], minutos=1)
@@ -1079,13 +1095,13 @@ class AprendizadoTestes(TestCase):
         quase_igual = palavras("e", 97) + " x y z"
         self._corrigido(self.outro, "social", palavras("e"), quase_igual)  # mudou 3%: fica de fora
         self._corrigido(self.outro, "escola", palavras("f"), palavras("g"), reedicao=palavras("h"), minutos=5)
-        resultado = exemplos.correcoes(self.dona, maximo=8)
+        resultado = exemplos.correcoes([self.dona], maximo=8)
         self.assertEqual([c["tema"] for c in resultado], ["sono", "escola"])
         self.assertEqual(resultado[0]["ia"], palavras("a"))
         self.assertEqual(resultado[0]["motivos"], ["Rebuscado", "Ficou curto"])
         self.assertEqual((resultado[1]["ia"], resultado[1]["ela"]), (palavras("f"), palavras("h")))
-        self.assertEqual(len(exemplos.correcoes(self.dona, maximo=1)), 1)
-        self.assertEqual([c["tema"] for c in exemplos.correcoes(self.dona, temas_presentes=["escola"])], ["escola"])
+        self.assertEqual(len(exemplos.correcoes([self.dona], maximo=1)), 1)
+        self.assertEqual([c["tema"] for c in exemplos.correcoes([self.dona], temas_presentes=["escola"])], ["escola"])
 
     def test_prompt_so_traz_correcoes_quando_ha(self):
         sem = prompt.instrucao_sistema(secoes.ANAMNESE, {}, [])
@@ -1271,3 +1287,188 @@ class InserirExcluirTestes(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("não escreveu o tema novo", Mensagem.objects.filter(papel=Mensagem.IA).latest("id").erro)
         self.assertEqual(self.p["sono"].versoes.count(), 1)
+
+
+class PapeisTestes(TestCase):
+    """Gestor avalia e forma o padrão; analista só escreve. O gestor alcança os laudos dos analistas dele."""
+
+    def setUp(self):
+        self.gestora = usuaria("amanda")
+        self.analista = usuaria("bia", gestor=False, gestor_dela=self.gestora)
+        self.outra_gestora = usuaria("carla")
+        self.solto = usuaria("davi", gestor=False)  # analista sem gestor
+        self.laudo = Laudo.objects.create(dono=self.analista, paciente="Paciente da Bia", anamnese="Sono: insônia.")
+        self.paragrafo = Paragrafo.objects.create(laudo=self.laudo, tema="sono")
+        self.versao = Versao.objects.create(
+            paragrafo=self.paragrafo, numero=1, texto=palavras("ia"), trechos_origem=["insônia"], origem=Versao.GERACAO
+        )
+        self.url_secao = f"/laudos/{self.laudo.id}/secao/4.2/"
+
+    def _post(self, url, **dados):
+        return self.client.post(url, dados, content_type="application/json")
+
+    def _prompt(self, laudo, config=None):
+        return servico.preparar(laudo, secoes.ANAMNESE, "Escreva.", do_zero=True, config=config)[0]
+
+    def test_quem_nao_tem_papel_e_analista(self):
+        sem_papel = get_user_model().objects.create_user(username="eva", password="Senha-forte-123")
+        self.assertFalse(papeis.eh_gestor(sem_papel))
+        self.assertEqual(list(papeis.analistas_de(sem_papel)), [])
+        self.assertEqual(set(papeis.gestores()), {self.gestora, self.outra_gestora})
+
+    def test_analista_nao_avalia_nem_ve_os_botoes(self):
+        self.client.force_login(self.analista)
+        for tipo in ("like", "deslike"):
+            r = self._post(f"/versoes/{self.versao.id}/avaliar/", tipo=tipo, motivos=["curto"])
+            self.assertEqual(r.status_code, 403)
+            self.assertIn("gestores", r.json()["erro"])
+        self.assertEqual((Avaliacao.objects.count(), Exemplo.objects.count()), (0, 0))
+        tela = self.client.get(self.url_secao)
+        self.assertContains(tela, 'data-acao="editar"')
+        self.assertContains(tela, 'id="caixa"')
+        for ausente in ('data-acao="like"', 'data-acao="deslike"', "dialogo-deslike", "motivos-anteriores", "/estatisticas/"):
+            self.assertNotContains(tela, ausente)
+        self.assertRedirects(self.client.get("/estatisticas/"), "/")
+
+    def test_edicao_de_analista_so_cria_a_versao(self):
+        self.client.force_login(self.analista)
+        r = self._post(f"/versoes/{self.versao.id}/editar/", texto=palavras("dela"), motivos=["curto"], comentario="x")
+        self.assertEqual(r.status_code, 200)
+        atual = self.paragrafo.versao_atual()
+        self.assertEqual((atual.numero, atual.origem, atual.autor), (2, Versao.EDICAO, self.analista))
+        self.assertEqual((Avaliacao.objects.count(), Exemplo.objects.count()), (0, 0))
+        self.assertEqual(exemplos.correcoes(papeis.gestores()), [])
+
+    def test_gestor_abre_os_laudos_dos_analistas_dele(self):
+        self.client.force_login(self.gestora)
+        self.assertContains(self.client.get("/"), "Paciente da Bia")
+        for url in (f"/laudos/{self.laudo.id}/", self.url_secao, f"/laudos/{self.laudo.id}/texto/", f"/laudos/{self.laudo.id}/secao/4.2/texto/"):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        tela = self.client.get(self.url_secao)
+        self.assertContains(tela, "nota-equipe")
+        for presente in ('data-acao="like"', 'data-acao="deslike"', 'data-acao="editar"'):
+            self.assertContains(tela, presente)
+        # Conversar com a IA e montar a seção é só de quem escreve o laudo.
+        for ausente in ('id="caixa"', 'data-acao="excluir"', 'data-acao="inserir"', "dialogo-inserir"):
+            self.assertNotContains(tela, ausente)
+
+    def test_gestor_nao_conversa_nem_monta_o_laudo_do_analista(self):
+        self.client.force_login(self.gestora)
+        self.assertEqual(self._post(f"{self.url_secao}mensagem/", texto="refaça").status_code, 404)
+        self.assertEqual(self.client.get(f"{self.url_secao}andamento/").status_code, 404)
+        self.assertEqual(self._post(f"/paragrafos/{self.paragrafo.id}/excluir/").status_code, 404)
+        self.assertEqual(self._post(f"/paragrafos/{self.paragrafo.id}/restaurar/").status_code, 404)
+        self.assertEqual(Mensagem.objects.count(), 0)
+        self.assertTrue(Paragrafo.objects.get().ativo)
+
+    def test_laudo_de_analista_de_outro_gestor_responde_404(self):
+        for pessoa in (self.outra_gestora, self.solto):
+            self.client.force_login(pessoa)
+            self.assertNotContains(self.client.get("/"), "Paciente da Bia")
+            self.assertEqual(self.client.get(f"/laudos/{self.laudo.id}/").status_code, 404)
+            self.assertEqual(self.client.get(self.url_secao).status_code, 404)
+            self.assertEqual(self._post(f"/versoes/{self.versao.id}/avaliar/", tipo="like").status_code, 404)
+            self.assertEqual(self._post(f"/versoes/{self.versao.id}/editar/", texto="invasão").status_code, 404)
+        self.assertEqual(self.paragrafo.versoes.count(), 1)
+
+    def test_analista_nao_abre_laudo_do_gestor(self):
+        laudo = Laudo.objects.create(dono=self.gestora, paciente="Paciente da Amanda", anamnese="notas")
+        self.client.force_login(self.analista)
+        self.assertNotContains(self.client.get("/"), "Paciente da Amanda")
+        self.assertEqual(self.client.get(f"/laudos/{laudo.id}/").status_code, 404)
+
+    def test_quem_deixa_de_ser_gestor_perde_o_alcance(self):
+        Papel.objects.filter(usuario=self.gestora).update(tipo=Papel.ANALISTA)
+        self.client.force_login(self.gestora)
+        self.assertEqual(self.client.get(f"/laudos/{self.laudo.id}/").status_code, 404)
+        self.assertEqual(self._post(f"/versoes/{self.versao.id}/editar/", texto="x").status_code, 404)
+
+    def test_like_do_gestor_no_laudo_do_analista_vira_padrao_de_todos(self):
+        self.client.force_login(self.gestora)
+        self.assertEqual(self._post(f"/versoes/{self.versao.id}/avaliar/", tipo="like").status_code, 200)
+        self.assertEqual(Avaliacao.objects.get().autor, self.gestora)
+        self.assertEqual(Exemplo.objects.get().dono, self.gestora)  # em nome de quem aprovou, não de quem escreveu
+        # Entra no prompt de qualquer pessoa, menos no do próprio laudo de onde saiu.
+        de_outro = Laudo.objects.create(dono=self.solto, paciente="Paciente do Davi", anamnese="Sono: insônia.")
+        self.assertIn(palavras("ia"), self._prompt(de_outro))
+        self.assertNotIn(palavras("ia"), self._prompt(self.laudo))
+
+    def test_edicao_do_gestor_no_laudo_do_analista_avalia_e_vira_correcao(self):
+        self.client.force_login(self.gestora)
+        r = self._post(f"/versoes/{self.versao.id}/editar/", texto=palavras("gestora"), motivos=["rebuscado"])
+        self.assertEqual(r.status_code, 200)
+        nova = self.paragrafo.versao_atual()
+        self.assertEqual((nova.origem, nova.autor), (Versao.EDICAO, self.gestora))
+        deslike = Avaliacao.objects.get(versao=self.versao)
+        self.assertEqual((deslike.tipo, deslike.motivos, deslike.autor), ("deslike", ["rebuscado"], self.gestora))
+        self.assertEqual(Exemplo.objects.get().dono, self.gestora)
+        correcao = exemplos.correcoes(papeis.gestores())[0]
+        self.assertEqual((correcao["ia"], correcao["ela"], correcao["motivos"]), (palavras("ia"), palavras("gestora"), ["Rebuscado"]))
+        # A analista vê quem mexeu no texto dela.
+        self.client.force_login(self.analista)
+        self.assertContains(self.client.get(self.url_secao), "Editado por amanda")
+
+    def test_edicao_do_analista_depois_do_gestor_nao_apaga_a_correcao(self):
+        servico.editar_versao(self.versao, palavras("gestora"), autor=self.gestora)
+        servico.editar_versao(self.paragrafo.versao_atual(), palavras("analista"), autor=self.analista)
+        self.assertEqual(self.paragrafo.versao_atual().texto, palavras("analista"))
+        self.assertEqual([c["ela"] for c in exemplos.correcoes(papeis.gestores())], [palavras("gestora")])
+
+    def test_edicao_sobre_versao_desatualizada_nao_passa_por_cima_da_outra_pessoa(self):
+        servico.editar_versao(self.versao, palavras("analista"), autor=self.analista)
+        self.client.force_login(self.gestora)  # ela ainda está com a versão 1 na tela
+        r = self._post(f"/versoes/{self.versao.id}/editar/", texto=palavras("gestora"))
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("Recarregue", r.json()["erro"])
+        self.assertEqual(self.paragrafo.versao_atual().texto, palavras("analista"))
+        self.assertEqual(Avaliacao.objects.count(), 0)
+
+    def test_padrao_ignora_o_que_veio_de_quem_nao_e_gestor(self):
+        # Avaliações antigas de alguém que hoje é analista continuam no banco, mas não entram no prompt.
+        outro = Laudo.objects.create(dono=self.solto, paciente="Paciente do Davi", anamnese="Sono: insônia.")
+        for autor, texto in ((self.analista, "aprovado pela analista"), (self.gestora, "aprovado pela gestora")):
+            Exemplo.objects.create(fonte=Exemplo.LIKE, dono=autor, secao="4.2", tema="sono", trecho_origem="nota", texto=texto)
+        for _ in range(3):
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"], autor=self.analista)
+        sistema = self._prompt(outro)
+        self.assertIn("aprovado pela gestora", sistema)
+        self.assertNotIn("aprovado pela analista", sistema)
+        self.assertNotIn("parágrafos curtos", sistema)
+        for _ in range(3):
+            Avaliacao.objects.create(versao=self.versao, tipo="deslike", motivos=["curto"], autor=self.outra_gestora)
+        self.assertIn("parágrafos curtos", self._prompt(outro))
+
+    def test_estatisticas_mostram_o_padrao_dos_gestores(self):
+        Avaliacao.objects.create(versao=self.versao, tipo="like", autor=self.gestora)
+        Avaliacao.objects.create(versao=self.versao, tipo="like", autor=self.analista)  # antiga, de quem virou analista
+        self.client.force_login(self.outra_gestora)
+        r = self.client.get("/estatisticas/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context["total_likes"], 1)
+
+    def test_papel_recusa_gestor_com_gestor_e_gestor_de_si_mesmo(self):
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            Papel(usuario=self.outra_gestora, tipo=Papel.GESTOR, gestor=self.gestora).full_clean()
+        with self.assertRaises(ValidationError):
+            Papel(usuario=self.solto, tipo=Papel.ANALISTA, gestor=self.solto).full_clean()
+        with self.assertRaises(ValidationError):  # só gestor pode ser gestor responsável
+            Papel(usuario=self.solto, tipo=Papel.ANALISTA, gestor=self.analista).full_clean()
+
+    def test_migracao_mantem_quem_ja_usava_como_gestor(self):
+        import importlib
+
+        from django.apps import apps
+
+        antiga = get_user_model().objects.create_user(username="antiga", password="Senha-forte-123")
+        laudo = Laudo.objects.create(dono=antiga, paciente="Antigo", anamnese="notas")
+        p = Paragrafo.objects.create(laudo=laudo, tema="sono")
+        v1 = Versao.objects.create(paragrafo=p, numero=1, texto="ia", origem=Versao.GERACAO)
+        v2 = Versao.objects.create(paragrafo=p, numero=2, texto="dela", origem=Versao.EDICAO)
+        av = Avaliacao.objects.create(versao=v1, tipo="deslike", motivos=["curto"])
+        importlib.import_module("laudos.migrations.0009_quem_ja_usava_vira_gestor").preencher(apps, None)
+        self.assertTrue(papeis.eh_gestor(get_user_model().objects.get(id=antiga.id)))
+        self.assertFalse(papeis.eh_gestor(get_user_model().objects.get(id=self.analista.id)))  # quem já tinha papel não muda
+        v1.refresh_from_db(); v2.refresh_from_db(); av.refresh_from_db()
+        self.assertEqual((v1.autor, v2.autor, av.autor), (None, antiga, antiga))

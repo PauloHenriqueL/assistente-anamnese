@@ -96,7 +96,7 @@ class Command(BaseCommand):
                 origem=Versao.GERACAO, mensagem=resposta,
             )
             if avaliacao == "like":
-                Avaliacao.objects.create(versao=versao, tipo=Avaliacao.LIKE)
+                Avaliacao.objects.create(versao=versao, tipo=Avaliacao.LIKE, autor=dono)
             elif avaliacao == "deslike":
-                Avaliacao.objects.create(versao=versao, tipo=Avaliacao.DESLIKE, motivos=["curto", "faltou"])
+                Avaliacao.objects.create(versao=versao, tipo=Avaliacao.DESLIKE, motivos=["curto", "faltou"], autor=dono)
         self.stdout.write(self.style.SUCCESS(f"Laudo de demonstração criado: /laudos/{laudo.id}/"))

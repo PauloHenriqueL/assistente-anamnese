@@ -1,9 +1,42 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from . import secoes
 
 SECAO_CHOICES = [(s.chave, s.titulo) for s in secoes.SECOES]
+
+
+class Papel(models.Model):
+    """O que cada pessoa faz no sistema. Quem não tem registro é analista sem gestor.
+
+    Gestor avalia (like, deslike e edição que vira exemplo) e forma o padrão que a IA
+    segue para todo mundo. Analista só escreve os laudos; o gestor dele pode abrir,
+    avaliar e editar esses laudos. As regras ficam em `papeis.py`.
+    """
+
+    GESTOR, ANALISTA = "gestor", "analista"
+    TIPOS = [(GESTOR, "Gestor"), (ANALISTA, "Analista")]
+    usuario = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="papel")
+    tipo = models.CharField("papel", max_length=10, choices=TIPOS, default=ANALISTA)
+    gestor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="vinculos",
+        limit_choices_to={"papel__tipo": GESTOR}, verbose_name="gestor responsável",
+        help_text="Só para analista: o gestor que pode abrir, avaliar e editar os laudos dele.",
+    )
+
+    class Meta:
+        verbose_name = "papel"
+        verbose_name_plural = "papel"
+
+    def __str__(self):
+        return self.get_tipo_display()
+
+    def clean(self):
+        if self.tipo == self.GESTOR and self.gestor_id:
+            raise ValidationError({"gestor": "Gestor não tem gestor responsável. Deixe o campo vazio."})
+        if self.gestor_id and self.gestor_id == self.usuario_id:
+            raise ValidationError({"gestor": "A pessoa não pode ser gestora dela mesma."})
 
 
 class Laudo(models.Model):
@@ -108,6 +141,10 @@ class Versao(models.Model):
         default=list, blank=True, help_text="Regras de escrita que a conferência do código ainda viu falhar."
     )
     mensagem = models.ForeignKey(Mensagem, null=True, blank=True, on_delete=models.SET_NULL, related_name="versoes")
+    autor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="Quem editou na tela: a dona do laudo ou o gestor dela. Vazio nos textos da IA.",
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -146,6 +183,10 @@ class Avaliacao(models.Model):
     tipo = models.CharField(max_length=10, choices=[(LIKE, "Like"), (DESLIKE, "Deslike")])
     motivos = models.JSONField(default=list, blank=True)
     comentario = models.TextField(blank=True)
+    autor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        help_text="Quem avaliou. Só avaliação de gestor entra no padrão da IA.",
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
 
 
@@ -159,11 +200,11 @@ class Exemplo(models.Model):
 
     LAUDO_BASE, LIKE, GEMINI = "laudo_base", "like", "gemini"
     FONTES = [(LAUDO_BASE, "Laudo base"), (LIKE, "Like"), (GEMINI, "Aprovado nas conversas com o Gemini")]
-    # Fontes de pares "material → texto aprovado" da própria dona.
+    # Fontes de pares "material → texto aprovado" de quem aprovou.
     FONTES_DE_PARES = [LIKE, GEMINI]
     dono = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="exemplos", null=True, blank=True,
-        help_text="Quem aprovou o exemplo. Vazio nos laudos base, que valem para todas.",
+        help_text="Quem aprovou o exemplo, não quem escreveu o laudo. Vazio nos laudos base, que valem para todas.",
     )
     secao = models.CharField(max_length=5, choices=SECAO_CHOICES, default="4.2")
     tema = models.CharField(max_length=40, choices=secoes.TODOS_OS_TIPOS)

@@ -5,6 +5,10 @@ laudos base, escolhidas pelo perfil do caso (faixa etária e queixas). Os pares
 aprovados são escolhidos pelo tema, preferindo os da mesma faixa etária. As
 correções são textos da IA que ela reescreveu, mostrados como antes e depois.
 O laudo que está sendo escrito nunca serve de exemplo para si mesmo.
+
+Pares, correções e reforços recebem `autores`: as pessoas cujas avaliações contam.
+No prompt são os gestores (`papeis.gestores()`), que formam o padrão de todo mundo;
+o que um analista edita ou o que foi avaliado por quem não é gestor fica de fora.
 """
 
 import difflib
@@ -50,6 +54,11 @@ def configuracao(nome=None):
     return CONFIGURACOES[nome or settings.EXEMPLOS_CONFIG]
 
 
+def _ids(autores):
+    """Ids de uma lista de usuários, de ids ou de uma consulta de usuários."""
+    return {getattr(a, "pk", a) for a in autores}
+
+
 def semelhanca(a, b):
     """De 0 (nada em comum) a 1 (mesmas palavras na mesma ordem)."""
     return difflib.SequenceMatcher(None, a.split(), b.split()).ratio()
@@ -85,11 +94,11 @@ def estilo(secao="4.2", perfil=None, candidatos=None):
     return {g: grupos[g] for g in nomes[:MAXIMO_LAUDOS_BASE]}
 
 
-def pares(dono, secao="4.2", temas_presentes=None, faixa="", laudo=None, config=None):
-    """Pares aprovados pela própria usuária nesta seção. Exemplos de uma nunca entram no prompt de outra."""
+def pares(autores, secao="4.2", temas_presentes=None, faixa="", laudo=None, config=None):
+    """Pares aprovados por `autores` nesta seção, em qualquer laudo que eles tenham avaliado."""
     config = config or configuracao()
     consulta = (
-        Exemplo.objects.filter(fonte__in=Exemplo.FONTES_DE_PARES, ativo=True, dono=dono, secao=secao)
+        Exemplo.objects.filter(fonte__in=Exemplo.FONTES_DE_PARES, ativo=True, dono__in=_ids(autores), secao=secao)
         .exclude(trecho_origem="")
         .order_by("-criado_em")
     )
@@ -115,21 +124,28 @@ def pares(dono, secao="4.2", temas_presentes=None, faixa="", laudo=None, config=
     return [{"tema": ex.tema, "trecho_origem": ex.trecho_origem, "texto": ex.texto} for ex in ordem[: config.maximo]]
 
 
-def _texto_da_ia_e_edicao(versoes):
-    """(última versão da IA, última edição dela depois dela) de um parágrafo, ou None se ela não editou."""
+def _texto_da_ia_e_edicao(versoes, autores=None):
+    """(última versão da IA, última edição depois dela) de um parágrafo, ou None se não há texto da IA.
+
+    Com `autores` (ids), só valem as edições feitas por eles.
+    """
     da_ia = [v for v in versoes if v.origem in ORIGENS_DA_IA]
     if not da_ia:
         return None
     ia = max(da_ia, key=lambda v: v.numero)
-    editadas = [v for v in versoes if v.origem == Versao.EDICAO and v.numero > ia.numero]
+    editadas = [
+        v for v in versoes
+        if v.origem == Versao.EDICAO and v.numero > ia.numero and (autores is None or v.autor_id in autores)
+    ]
     return ia, max(editadas, key=lambda v: v.numero) if editadas else None
 
 
-def correcoes(dono, secao="4.2", temas_presentes=None, laudo=None, maximo=8):
-    """Textos da IA que ela reescreveu: o mais recente de cada tema, com os rótulos dos motivos que ela marcou."""
+def correcoes(autores, secao="4.2", temas_presentes=None, laudo=None, maximo=8):
+    """Textos da IA que `autores` reescreveram: o mais recente de cada tema, com os rótulos dos motivos marcados."""
     rotulos = dict(Avaliacao.MOTIVOS)
+    ids = _ids(autores)
     paragrafos = (
-        Paragrafo.objects.filter(laudo__dono=dono, secao=secao, versoes__origem=Versao.EDICAO)
+        Paragrafo.objects.filter(secao=secao, versoes__origem=Versao.EDICAO, versoes__autor__in=ids)
         .distinct()
         .prefetch_related("versoes__avaliacoes")
     )
@@ -139,13 +155,17 @@ def correcoes(dono, secao="4.2", temas_presentes=None, laudo=None, maximo=8):
         paragrafos = paragrafos.filter(tema__in=temas_presentes)
     candidatas = []
     for p in paragrafos:
-        par = _texto_da_ia_e_edicao(list(p.versoes.all()))
+        par = _texto_da_ia_e_edicao(list(p.versoes.all()), ids)
         if not par or not par[1]:
             continue
         ia, ela = par
         if 1 - semelhanca(ia.texto, ela.texto) < MUDANCA_MINIMA_CORRECAO:
             continue
-        motivos = [rotulos.get(m, m) for av in ia.avaliacoes.all() if av.tipo == Avaliacao.DESLIKE for m in av.motivos]
+        motivos = [
+            rotulos.get(m, m)
+            for av in ia.avaliacoes.all() if av.tipo == Avaliacao.DESLIKE and av.autor_id in ids
+            for m in av.motivos
+        ]
         candidatas.append((ela.criado_em, {"tema": p.tema, "ia": ia.texto, "ela": ela.texto, "motivos": motivos}))
     candidatas.sort(key=lambda c: c[0], reverse=True)
     escolhidas, temas = [], set()
@@ -178,9 +198,9 @@ def edicoes_por_mes(dono):
     ]
 
 
-def contagem_motivos(dono, secao=None, ultimos=None):
+def contagem_motivos(autores, secao=None, ultimos=None):
     # Deslike sem motivo (comum quando ela só reescreve o texto) não entra: diluiria os motivos reais.
-    consulta = Avaliacao.objects.filter(tipo=Avaliacao.DESLIKE, versao__paragrafo__laudo__dono=dono).exclude(motivos=[])
+    consulta = Avaliacao.objects.filter(tipo=Avaliacao.DESLIKE, autor__in=_ids(autores)).exclude(motivos=[])
     if secao:
         consulta = consulta.filter(versao__paragrafo__secao=secao)
     consulta = consulta.order_by("-criado_em")
@@ -194,9 +214,9 @@ def contagem_motivos(dono, secao=None, ultimos=None):
     return contagem, total
 
 
-def reforcos(dono, secao="4.2"):
-    """Regras extras para os motivos que aparecem em boa parte dos deslikes recentes da usuária na seção."""
-    contagem, total = contagem_motivos(dono, secao=secao, ultimos=30)
+def reforcos(autores, secao="4.2"):
+    """Regras extras para os motivos que aparecem em boa parte dos deslikes recentes de `autores` na seção."""
+    contagem, total = contagem_motivos(autores, secao=secao, ultimos=30)
     if total == 0:
         return ""
     linhas = [

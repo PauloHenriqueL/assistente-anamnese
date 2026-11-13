@@ -7,30 +7,49 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from . import exemplos, gemini, secoes, servico
+from . import exemplos, gemini, papeis, secoes, servico
 from .extracao import ArquivoInvalido, texto_do_arquivo
 from .models import Avaliacao, Exemplo, Laudo, Paragrafo, Versao
 
 
+# Laudo que a pessoa não alcança responde 404, para não revelar nem que ele existe.
+# Há dois alcances: conversar com a IA e montar a seção é só da dona do laudo (`_da_usuaria`);
+# abrir, avaliar e editar os blocos vale também para o gestor dela (`_ao_alcance`).
+
+
 def _laudo_da_usuaria(request, laudo_id):
-    # Laudo de outra pessoa responde 404, para não revelar nem que ele existe.
     return get_object_or_404(Laudo, id=laudo_id, dono=request.user)
-
-
-def _versao_da_usuaria(request, versao_id):
-    return get_object_or_404(Versao, id=versao_id, paragrafo__laudo__dono=request.user)
 
 
 def _paragrafo_da_usuaria(request, paragrafo_id):
     return get_object_or_404(Paragrafo, id=paragrafo_id, laudo__dono=request.user)
 
 
+def _laudo_ao_alcance(request, laudo_id):
+    return get_object_or_404(Laudo.objects.select_related("dono"), papeis.alcanca(request.user), id=laudo_id)
+
+
+def _versao_ao_alcance(request, versao_id):
+    return get_object_or_404(Versao, papeis.alcanca(request.user, "paragrafo__laudo__"), id=versao_id)
+
+
+def _permissoes(request, laudo):
+    """O que a tela oferece a quem está olhando este laudo."""
+    return {"dona_do_laudo": laudo.dono_id == request.user.id, "pode_avaliar": papeis.eh_gestor(request.user)}
+
+
 def lista(request):
+    equipe = (
+        Laudo.objects.filter(dono__in=papeis.analistas_de(request.user))
+        .select_related("dono")
+        .order_by("dono__first_name", "dono__username", "-criado_em")
+    )
     return render(
         request,
         "laudos/lista.html",
         {
             "laudos": Laudo.objects.filter(dono=request.user),
+            "laudos_da_equipe": equipe,
             "sem_exemplos": not Exemplo.objects.filter(fonte=Exemplo.LAUDO_BASE).exists(),
         },
     )
@@ -65,16 +84,16 @@ def _secao(chave):
 
 def laudo(request, laudo_id):
     """Visão geral do laudo: a lista de seções para ela escolher onde entrar."""
-    laudo = _laudo_da_usuaria(request, laudo_id)
+    laudo = _laudo_ao_alcance(request, laudo_id)
     return render(
         request,
         "laudos/laudo.html",
-        {"laudo": laudo, "situacao": servico.situacao_das_secoes(laudo), "secoes": secoes.SECOES},
+        {"laudo": laudo, "situacao": servico.situacao_das_secoes(laudo), "secoes": secoes.SECOES, **_permissoes(request, laudo)},
     )
 
 
 def secao(request, laudo_id, chave):
-    laudo = _laudo_da_usuaria(request, laudo_id)
+    laudo = _laudo_ao_alcance(request, laudo_id)
     s = _secao(chave)
     mensagens = laudo.mensagens.filter(secao=s.chave).prefetch_related("versoes__paragrafo", "versoes__avaliacoes")
     pendente = servico.em_andamento(laudo, s.chave)
@@ -100,6 +119,7 @@ def secao(request, laudo_id, chave):
             "modelos": settings.IA_MODELOS,
             "tipos_para_inserir": tipos_para_inserir,
             "temas_do_meio": [(p.id, p.rotulo) for p, _ in paragrafos if p.tema not in fixos] if s.ordem_livre else [],
+            **_permissoes(request, laudo),
         },
     )
 
@@ -172,24 +192,32 @@ def _motivos(dados):
 
 @require_POST
 def avaliar(request, versao_id):
-    versao = _versao_da_usuaria(request, versao_id)
+    versao = _versao_ao_alcance(request, versao_id)
+    if not papeis.eh_gestor(request.user):
+        return JsonResponse({"ok": False, "erro": "Só gestores avaliam os textos."}, status=403)
     dados = _json(request)
     tipo = dados.get("tipo")
     if tipo not in (Avaliacao.LIKE, Avaliacao.DESLIKE):
         return JsonResponse({"ok": False, "erro": "Tipo de avaliação inválido."}, status=400)
     motivos = _motivos(dados) if tipo == Avaliacao.DESLIKE else []
-    servico.avaliar_versao(versao, tipo, motivos, dados.get("comentario", "").strip())
+    servico.avaliar_versao(versao, tipo, motivos, dados.get("comentario", "").strip(), autor=request.user)
     return JsonResponse({"ok": True})
 
 
 @require_POST
 def editar(request, versao_id):
-    versao = _versao_da_usuaria(request, versao_id)
+    versao = _versao_ao_alcance(request, versao_id)
     dados = _json(request)
     texto = dados.get("texto", "").strip()
     if not texto:
         return JsonResponse({"ok": False, "erro": "O texto não pode ficar vazio."}, status=400)
-    servico.editar_versao(versao, texto, _motivos(dados), dados.get("comentario", "").strip())
+    try:
+        servico.editar_versao(versao, texto, _motivos(dados), dados.get("comentario", "").strip(), autor=request.user)
+    except servico.VersaoDesatualizada:
+        return JsonResponse(
+            {"ok": False, "erro": "Este bloco mudou depois que você abriu a página. Recarregue para ver a versão atual."},
+            status=409,
+        )
     return JsonResponse({"ok": True})
 
 
@@ -222,22 +250,27 @@ def restaurar(request, paragrafo_id):
 
 
 def texto_secao(request, laudo_id, chave):
-    laudo = _laudo_da_usuaria(request, laudo_id)
+    laudo = _laudo_ao_alcance(request, laudo_id)
     s = _secao(chave)
     return HttpResponse(f"{s.titulo}\n\n{laudo.texto_secao(s.chave)}", content_type="text/plain; charset=utf-8")
 
 
 def texto_completo(request, laudo_id):
-    laudo = _laudo_da_usuaria(request, laudo_id)
+    laudo = _laudo_ao_alcance(request, laudo_id)
     return HttpResponse(laudo.texto_completo(), content_type="text/plain; charset=utf-8")
 
 
 def estatisticas(request):
-    contagem, total = exemplos.contagem_motivos(request.user)
+    """O padrão que a IA segue: o que os gestores aprovaram e reprovaram. Analista não avalia e não vê."""
+    if not papeis.eh_gestor(request.user):
+        return redirect("lista")
+    padrao = list(papeis.gestores().values_list("id", flat=True))
+    contagem, total = exemplos.contagem_motivos(padrao)
     rotulos = dict(Avaliacao.MOTIVOS)
     motivos = [(rotulos.get(m, m), n, round(100 * n / total) if total else 0) for m, n in contagem.most_common()]
+    reforcos = [(s.titulo, exemplos.reforcos(padrao, s.chave)) for s in secoes.SECOES]
     likes_por_tema = (
-        Exemplo.objects.filter(fonte=Exemplo.LIKE, ativo=True, dono=request.user)
+        Exemplo.objects.filter(fonte=Exemplo.LIKE, ativo=True, dono__in=padrao)
         .values("secao", "tema")
         .annotate(n=Count("id"))
         .order_by("-n")
@@ -248,11 +281,11 @@ def estatisticas(request):
         {
             "motivos": motivos,
             "total_deslikes": total,
-            "total_likes": Avaliacao.objects.filter(tipo=Avaliacao.LIKE, versao__paragrafo__laudo__dono=request.user).count(),
+            "total_likes": Avaliacao.objects.filter(tipo=Avaliacao.LIKE, autor__in=padrao).count(),
             "likes_por_tema": [
                 (secoes.secao(x["secao"]).titulo, secoes.secao(x["secao"]).rotulo_tipo(x["tema"]), x["n"]) for x in likes_por_tema
             ],
-            "reforcos": [(s.titulo, exemplos.reforcos(request.user, s.chave)) for s in secoes.SECOES if exemplos.reforcos(request.user, s.chave)],
+            "reforcos": [(titulo, texto) for titulo, texto in reforcos if texto],
             "edicoes_por_mes": exemplos.edicoes_por_mes(request.user),
         },
     )

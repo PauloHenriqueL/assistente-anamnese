@@ -2,7 +2,7 @@
 <article class="paragrafo{% if av.tipo == 'like' %} curtido{% elif av.tipo == 'deslike' %} descurtido{% endif %}" data-versao="{{ versao.id }}" data-origem="{{ versao.origem }}" data-paragrafo="{{ versao.paragrafo_id }}">
   <header>
     <span class="distintivo marca">{{ versao.paragrafo.rotulo }}</span>
-    <span class="apagado">versão {{ versao.numero }} · {{ versao.get_origem_display }} · {{ versao.palavras }} palavras</span>
+    <span class="apagado">versão {{ versao.numero }} · {% if versao.origem == 'edicao_usuaria' and versao.autor_id %}{% if versao.autor_id == user.id %}Editado por você{% else %}Editado por {{ versao.autor.get_full_name|default:versao.autor.username }}{% endif %}{% else %}{{ versao.get_origem_display }}{% endif %} · {{ versao.palavras }} palavras</span>
   </header>
   <p class="texto">{{ versao.texto|linebreaksbr }}</p>
   {% if versao.curto_demais %}<p class="alerta">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}<span>Bloco com menos de {{ versao.minimo }} palavras. Confira se o texto ficou resumido demais.</span></p>{% endif %}
@@ -15,19 +15,23 @@
   <footer>
     <button type="button" class="botao fantasma" data-acao="copiar" title="Copiar só este bloco">
       {% include 'laudos/componentes/icone.html' with nome='copiar' tamanho=15 %} <span>Copiar</span></button>
+    {% if pode_avaliar %}{# só gestor avalia; o servidor recusa quem tentar por fora #}
     <button type="button" class="botao fantasma botao-like" data-acao="like" title="Bom exemplo">
       {% include 'laudos/componentes/icone.html' with nome='gostei' tamanho=15 %} Gostei</button>
     <button type="button" class="botao fantasma botao-deslike" data-acao="deslike" title="Mau exemplo">
       {% include 'laudos/componentes/icone.html' with nome='nao_gostei' tamanho=15 %} Não gostei</button>
+    {% endif %}
     {% if editavel %}
       <button type="button" class="botao fantasma" data-acao="editar">
         {% include 'laudos/componentes/icone.html' with nome='editar' tamanho=15 %} Editar</button>
+      {% if dona_do_laudo %}{# montar a seção (inserir, excluir) é só de quem escreve o laudo #}
       {% if secao.ordem_livre %}
         <button type="button" class="botao fantasma" data-acao="inserir" data-depois="{{ versao.paragrafo_id }}" title="Inserir um tema novo logo abaixo deste">
           {% include 'laudos/componentes/icone.html' with nome='mais' tamanho=15 %} Inserir abaixo</button>
       {% endif %}
       <button type="button" class="botao fantasma botao-excluir" data-acao="excluir" title="Tirar este bloco da seção">
         {% include 'laudos/componentes/icone.html' with nome='lixeira' tamanho=15 %} Excluir</button>
+      {% endif %}
     {% endif %}
     {% if av %}
       <span class="distintivo {% if av.tipo == 'like' %}sucesso{% else %}perigo{% endif %} direita">

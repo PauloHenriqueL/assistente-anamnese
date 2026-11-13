@@ -29,7 +29,7 @@ from django.conf import settings
 from django.db import close_old_connections, connection, connections, transaction
 from django.utils import timezone
 
-from . import conferencia, exemplos, gemini, perfil, prompt, secoes
+from . import conferencia, exemplos, gemini, papeis, perfil, prompt, secoes
 from .models import Avaliacao, Exemplo, Laudo, Mensagem, Paragrafo, Versao
 
 logger = logging.getLogger(__name__)
@@ -346,15 +346,17 @@ def preparar(
     """
     caso = perfil.do_texto(laudo.anamnese)
     config = exemplos.configuracao(config)
+    # O padrão é o que os gestores avaliaram, seja de quem for o laudo. O que o analista edita não entra.
+    padrao = list(papeis.gestores().values_list("id", flat=True))
     tipos_presentes = None if do_zero else (
         sorted({p.tema for p in laudo.paragrafos.filter(ativo=True, secao=secao.chave)} | ({tema_novo} - {None})) or None
     )
     sistema = prompt.instrucao_sistema(
         secao,
         exemplos.estilo(secao.chave, caso, candidatos_estilo),
-        exemplos.pares(laudo.dono, secao.chave, tipos_presentes, caso["faixa"], laudo=laudo, config=config),
-        exemplos.reforcos(laudo.dono, secao.chave),
-        exemplos.correcoes(laudo.dono, secao.chave, tipos_presentes, laudo=laudo, maximo=config.correcoes)
+        exemplos.pares(padrao, secao.chave, tipos_presentes, caso["faixa"], laudo=laudo, config=config),
+        exemplos.reforcos(padrao, secao.chave),
+        exemplos.correcoes(padrao, secao.chave, tipos_presentes, laudo=laudo, maximo=config.correcoes)
         if config.correcoes else (),
     )
     return sistema, _conteudo(laudo, secao, texto_usuaria, mensagem_id, do_zero)
@@ -569,16 +571,21 @@ def iniciar_mensagem(laudo, texto_usuaria, chave_secao="4.2", escolha=None, inse
     return mensagem
 
 
-def avaliar_versao(versao, tipo, motivos=(), comentario=""):
-    """Like ou deslike da dona do laudo. O like vira par few-shot; o deslike desliga o par da versão."""
+def avaliar_versao(versao, tipo, motivos=(), comentario="", autor=None):
+    """Like ou deslike de um gestor. O like vira par few-shot; o deslike desliga o par da versão.
+
+    `autor` é quem avaliou (sem ele, a dona do laudo): o gestor pode avaliar o laudo de um
+    analista, e o exemplo fica em nome de quem aprovou. Quem chama confere se o autor é gestor.
+    """
     motivos = list(motivos)
+    autor = autor or versao.paragrafo.laudo.dono
     # A tela reenvia quando a conexão cai no meio; a mesma avaliação repetida em seguida não conta duas vezes.
     repetida = Avaliacao.objects.filter(
-        versao=versao, tipo=tipo, motivos=motivos, comentario=comentario,
+        versao=versao, tipo=tipo, motivos=motivos, comentario=comentario, autor=autor,
         criado_em__gte=timezone.now() - timedelta(minutes=2),
     ).exists()
     if not repetida:
-        Avaliacao.objects.create(versao=versao, tipo=tipo, motivos=motivos, comentario=comentario)
+        Avaliacao.objects.create(versao=versao, tipo=tipo, motivos=motivos, comentario=comentario, autor=autor)
     if tipo == Avaliacao.LIKE:
         Exemplo.objects.update_or_create(
             versao=versao,
@@ -588,7 +595,7 @@ def avaliar_versao(versao, tipo, motivos=(), comentario=""):
                 "trecho_origem": "\n".join(versao.trechos_origem),
                 "texto": versao.texto,
                 "fonte": Exemplo.LIKE,
-                "dono": versao.paragrafo.laudo.dono,
+                "dono": autor,
                 "ativo": True,
             },
         )
@@ -596,32 +603,46 @@ def avaliar_versao(versao, tipo, motivos=(), comentario=""):
         Exemplo.objects.filter(versao=versao).update(ativo=False)
 
 
-def editar_versao(versao, texto, motivos=(), comentario=""):
-    """Edição feita pela própria psicóloga na tela, sem passar pela IA.
+class VersaoDesatualizada(Exception):
+    """O bloco ganhou outra versão depois que a pessoa abriu a tela: dona e gestor podem editar o mesmo bloco."""
 
-    Editar é avaliar: o texto dela vira bom exemplo (like) e o texto da IA que ela
-    substituiu ganha deslike com os motivos que ela marcar (podem ser nenhum).
-    Reeditar um texto que já era dela só troca o exemplo, sem deslike.
+
+def editar_versao(versao, texto, motivos=(), comentario="", autor=None):
+    """Edição feita na tela, sem passar pela IA, por `autor` (sem ele, a dona do laudo).
+
+    Para gestor, editar é avaliar: o texto dele vira bom exemplo (like) e o texto da IA que
+    ele substituiu ganha deslike com os motivos que marcar (podem ser nenhum). Reeditar um
+    texto que já era de uma pessoa só troca o exemplo, sem deslike.
+    Para analista, a edição só cria a nova versão: analista não avalia.
     Texto igual ao da versão atual não cria outra: a tela reenvia quando a conexão cai no meio.
+    Se o bloco mudou desde que a tela foi aberta, levanta VersaoDesatualizada em vez de passar
+    por cima do que a outra pessoa (ou a IA) escreveu.
     """
-    paragrafo = versao.paragrafo
-    atual = paragrafo.versao_atual()
-    if atual and atual.texto == texto.strip():
-        return atual
+    autor = autor or versao.paragrafo.laudo.dono
     with transaction.atomic():
-        numero = (paragrafo.versoes.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
+        # Trava o parágrafo: duas edições ao mesmo tempo não disputam o mesmo número de versão.
+        paragrafo = Paragrafo.objects.select_for_update().get(id=versao.paragrafo_id)
+        atual = paragrafo.versao_atual()
+        if atual and atual.texto == texto.strip():
+            return atual
+        if atual and atual.id != versao.id:
+            raise VersaoDesatualizada
+        numero = (atual.numero if atual else 0) + 1
         nova = Versao.objects.create(
             paragrafo=paragrafo,
             numero=numero,
             texto=texto.strip(),
             trechos_origem=versao.trechos_origem,
             origem=Versao.EDICAO,
+            autor=autor,
         )
+        if not papeis.eh_gestor(autor):
+            return nova
         if versao.origem == Versao.EDICAO:
             Exemplo.objects.filter(versao=versao).update(ativo=False)
         else:
-            avaliar_versao(versao, Avaliacao.DESLIKE, motivos, comentario)
-        avaliar_versao(nova, Avaliacao.LIKE)
+            avaliar_versao(versao, Avaliacao.DESLIKE, motivos, comentario, autor)
+        avaliar_versao(nova, Avaliacao.LIKE, autor=autor)
     return nova
 
 

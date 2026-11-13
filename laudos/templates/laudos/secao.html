@@ -7,7 +7,10 @@
   {% include "laudos/_menu_secoes.html" %}
 
   <div class="ficha-conteudo">
-    {% if faltando %}
+    {% if not dona_do_laudo %}
+      <p class="nota" id="nota-equipe">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>Este laudo é de {{ laudo.dono.get_full_name|default:laudo.dono.username }}. Você pode avaliar e editar os blocos; a conversa com a IA é só de quem escreve o laudo.</span></p>
+    {% endif %}
+    {% if faltando and dona_do_laudo %}
       <p class="aviso atencao">{% include 'laudos/componentes/icone.html' with nome='alerta' tamanho=15 %}
         Esta seção usa como base {{ faltando|join:", " }}, que ainda não foi escrita. Você pode seguir, mas a IA terá menos material.</p>
     {% endif %}
@@ -44,6 +47,7 @@
           {% endfor %}
         </div>
 
+        {% if dona_do_laudo %}
         <form class="caixa" id="caixa">
           <textarea id="texto" rows="3" placeholder="{% if paragrafos %}Peça um ajuste, ou cole um bloco que você editou e peça para arrumar a escrita{% elif secao.chave == '2' or secao.chave == '4.2' %}Orientação opcional para a primeira geração{% else %}Escreva para a IA{% endif %}"></textarea>
           <div class="escolha-ia">
@@ -64,6 +68,7 @@
               {% if paragrafos %}Enviar{% else %}Gerar seção{% endif %}</button>
           </div>
         </form>
+        {% endif %}
       </section>
 
       <section class="cartao secao42">
@@ -72,8 +77,10 @@
           <h2>{{ secao.titulo|capfirst }}</h2>
           {% if paragrafos %}
             <div class="direita">
+              {% if dona_do_laudo %}
               <button type="button" class="botao" data-acao="inserir" data-depois="">
                 {% include 'laudos/componentes/icone.html' with nome='mais' tamanho=15 %} <span>{% if secao.ordem_livre %}Inserir tema{% else %}Inserir bloco{% endif %}</span></button>
+              {% endif %}
               <button type="button" class="botao" id="copiar" data-url="{% url 'texto_secao' laudo.id secao.chave %}" data-rotulo="Copiar seção">
                 {% include 'laudos/componentes/icone.html' with nome='copiar' tamanho=15 %} <span>Copiar seção</span></button>
             </div>
@@ -95,6 +102,7 @@
   </div>
 </div>
 
+{% if pode_avaliar %}
 <dialog id="dialogo-deslike" class="modal">
   <form method="dialog">
     <header><h3>O que não ficou bom?</h3></header>
@@ -115,13 +123,16 @@
     </div>
   </form>
 </dialog>
+{% endif %}
 
 <dialog id="dialogo-editar" class="modal largo">
   <form method="dialog">
     <header><h3>Editar bloco</h3></header>
     <div class="modal-corpo">
-      <p class="nota">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>A sua edição vira uma nova versão, não é alterada pela IA e passa a ser um bom exemplo para ela.</span></p>
+      {# Só a edição de gestor avalia: vira bom exemplo e pede os motivos do que estava ruim. #}
+      <p class="nota">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>A sua edição vira uma nova versão e não é alterada pela IA{% if pode_avaliar %}. Ela passa a ser um bom exemplo para a IA{% endif %}.</span></p>
       <textarea name="texto" rows="12"></textarea>
+      {% if pode_avaliar %}
       <fieldset class="motivos-anteriores">
         <legend class="rotulo">O que estava ruim no texto anterior? <span class="apagado">(opcional)</span></legend>
         <div class="opcoes">
@@ -134,6 +145,7 @@
           <textarea name="comentario" rows="2"></textarea>
         </label>
       </fieldset>
+      {% endif %}
       <div class="acoes">
         <button value="cancelar" class="botao fantasma">Cancelar</button>
         <button value="ok" class="botao primario">Salvar versão</button>
@@ -142,6 +154,7 @@
   </form>
 </dialog>
 
+{% if dona_do_laudo %}
 <dialog id="dialogo-inserir" class="modal largo">
   <form method="dialog">
     <header><h3>{% if secao.ordem_livre %}Inserir tema{% else %}Inserir bloco{% endif %}</h3></header>
@@ -180,4 +193,5 @@
     </div>
   </form>
 </dialog>
+{% endif %}
 {% endblock %}

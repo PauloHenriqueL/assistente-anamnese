@@ -33,10 +33,11 @@
     </div>
   </section>
 
+  <div class="coluna">
   <section class="cartao">
     <div class="cartao-cabecalho">
       <span class="icone">{% include 'laudos/componentes/icone.html' with nome='laudos' %}</span>
-      <h2>Laudos</h2>
+      <h2>{% if user.papel.tipo == 'gestor' %}Meus laudos{% else %}Laudos{% endif %}</h2>
       {% if laudos %}<span class="contador-pill">{{ laudos|length|stringformat:'02d' }}</span>{% endif %}
     </div>
     {% if laudos %}
@@ -60,5 +61,41 @@
       </div>
     {% endif %}
   </section>
+
+  {% if user.papel.tipo == 'gestor' %}
+  <section class="cartao" id="equipe">
+    <div class="cartao-cabecalho">
+      <span class="icone">{% include 'laudos/componentes/icone.html' with nome='usuarios' %}</span>
+      <h2>Laudos da equipe</h2>
+      {% if laudos_da_equipe %}<span class="contador-pill">{{ laudos_da_equipe|length|stringformat:'02d' }}</span>{% endif %}
+    </div>
+    {% if laudos_da_equipe %}
+      <p class="cartao-texto discreto">Laudos dos analistas vinculados a você. Você pode avaliar e editar os blocos; o que você aprovar vira padrão para a IA.</p>
+      {% regroup laudos_da_equipe by dono as por_analista %}
+      {% for grupo in por_analista %}
+        <h3 class="subtitulo-lista">{{ grupo.grouper.get_full_name|default:grupo.grouper.username }}</h3>
+        <ul class="lista">
+          {% for l in grupo.list %}
+            <li>
+              <span class="avatar">{{ l.paciente|slice:":1"|upper }}</span>
+              <a class="nome" href="{% url 'laudo' l.id %}">{{ l.paciente }}</a>
+              <span class="apagado">{{ l.criado_em|date:"d/m/Y H:i" }}</span>
+              <a class="botao-icone" href="{% url 'laudo' l.id %}" title="Abrir" aria-label="Abrir laudo de {{ l.paciente }}">
+                {% include 'laudos/componentes/icone.html' with nome='proximo' tamanho=16 %}</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+      <div style="height:8px"></div>
+    {% else %}
+      <div class="estado-vazio">
+        <span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='usuarios' tamanho=26 %}</span>
+        <h2>Nenhum laudo da equipe ainda</h2>
+        <p>Os laudos dos analistas vinculados a você aparecem aqui para você avaliar.</p>
+      </div>
+    {% endif %}
+  </section>
+  {% endif %}
+  </div>
 </div>
 {% endblock %}

@@ -47,9 +47,11 @@
       <a class="item-menu" href="{% url 'lista' %}" {% if rota == 'lista' or rota == 'laudo' %}aria-current="page"{% endif %}>
         {% include 'laudos/componentes/icone.html' with nome='laudos' tamanho=21 %}<span>Laudos</span>
       </a>
+      {% if user.papel.tipo == 'gestor' %}{# analista não avalia, então não tem o que ver aqui #}
       <a class="item-menu" href="{% url 'estatisticas' %}" {% if rota == 'estatisticas' %}aria-current="page"{% endif %}>
         {% include 'laudos/componentes/icone.html' with nome='avaliacoes' tamanho=21 %}<span>Avaliações</span>
       </a>
+      {% endif %}
     </nav>
     <main class="conteudo">
       <div class="container{% block largura %}{% endblock %}">

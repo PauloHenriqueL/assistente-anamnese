@@ -7,16 +7,19 @@
   {% include "laudos/_menu_secoes.html" %}
 
   <div class="ficha-conteudo">
+    {% if not dona_do_laudo %}
+      <p class="nota" id="nota-equipe">{% include 'laudos/componentes/icone.html' with nome='info' tamanho=15 %}<span>Este laudo é de {{ laudo.dono.get_full_name|default:laudo.dono.username }}. Você pode avaliar e editar os blocos; a conversa com a IA é só de quem escreve o laudo.</span></p>
+    {% endif %}
     <section class="cartao">
       <div class="cartao-cabecalho">
         <span class="icone">{% include 'laudos/componentes/icone.html' with nome='laudos' %}</span>
-        <h2>Em qual parte do laudo você quer trabalhar?</h2>
+        <h2>{% if dona_do_laudo %}Em qual parte do laudo você quer trabalhar?{% else %}Qual parte do laudo você quer avaliar?{% endif %}</h2>
         <div class="direita">
           <button type="button" class="botao" id="copiar" data-url="{% url 'texto_completo' laudo.id %}" data-rotulo="Copiar laudo">
             {% include 'laudos/componentes/icone.html' with nome='copiar' tamanho=15 %} <span>Copiar laudo</span></button>
         </div>
       </div>
-      <p class="cartao-texto discreto">Cada seção tem a própria conversa. A IA recebe a anamnese, as seções anteriores e o que você contar na conversa daquela seção.</p>
+      {% if dona_do_laudo %}<p class="cartao-texto discreto">Cada seção tem a própria conversa. A IA recebe a anamnese, as seções anteriores e o que você contar na conversa daquela seção.</p>{% endif %}
 
       <ul class="lista-secoes">
         {% for item in situacao %}

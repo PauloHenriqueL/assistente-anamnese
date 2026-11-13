@@ -13,7 +13,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
-from laudos.models import Laudo
+from laudos.models import Laudo, Papel
 
 
 class Command(BaseCommand):
@@ -38,6 +38,8 @@ class Command(BaseCommand):
 
         if admin is None:
             admin = User.objects.create_superuser(username=usuario, password=senha)
+            # Numa instalação nova, o administrador é quem avalia. Quem já existia segue com o papel que tem.
+            Papel.objects.create(usuario=admin, tipo=Papel.GESTOR)
             self.stdout.write(self.style.SUCCESS(f"Administrador {usuario} criado."))
         else:
             mudou = not (admin.is_superuser and admin.is_staff and admin.is_active)

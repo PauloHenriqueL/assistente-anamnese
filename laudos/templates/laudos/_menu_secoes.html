@@ -3,6 +3,7 @@
     <span class="avatar grande">{{ laudo.paciente|slice:":1"|upper }}</span>
     <span class="nome">{{ laudo.paciente }}</span>
     <span class="apagado">Criado em {{ laudo.criado_em|date:"d/m/Y" }}</span>
+    {% if not dona_do_laudo %}<span class="distintivo neutro">Analista: {{ laudo.dono.get_full_name|default:laudo.dono.username }}</span>{% endif %}
   </div>
   <nav class="ficha-menu" aria-label="Seções do laudo">
     <a href="{% url 'laudo' laudo.id %}" {% if not secao %}aria-current="page"{% endif %}>
