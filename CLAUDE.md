@@ -18,7 +18,10 @@ cp .env.example .env            # defina IA_PROVEDOR e a chave (OPENAI_API_KEY o
 .venv/bin/python manage.py garantir_admin     # cria superusuário de ADMIN_USUARIO/ADMIN_SENHA
 .venv/bin/python manage.py runserver          # http://127.0.0.1:8000
 
-# Testes (todos)
+# Checagem rápida (lint dos .py alterados + testes em paralelo, ~2 min; roda no Stop do Claude)
+scripts/checar-rapido
+
+# Testes (todos) — sempre com DATABASE_URL= para não usar o Neon do .env
 .venv/bin/python manage.py test laudos
 # Um teste específico
 .venv/bin/python manage.py test laudos.tests.FluxoTestes.test_primeira_geracao_cria_paragrafos_ordenados
@@ -84,3 +87,16 @@ Deploy no Render, plano pago (`render.yaml` + `build.sh`), com Postgres do Neon 
 ## Sigilo
 
 Nenhum dado de paciente real entra no repositório. `laudos/seeds/laudos_base.json` (laudos reais que viram exemplos de estilo) e `db.sqlite3` estão no `.gitignore`; o versionado é `laudos_base.exemplo.json`, fictício. `laudos_exemplos/` (PDFs, `substituicoes.txt` da anonimização) e `gemini/` (export do Takeout) ficam só na máquina local. Testes: rode com `DATABASE_URL=` para não usar o Neon do `.env`.
+
+## Requisitos não funcionais
+
+- pt-BR em código, UI e mensagens.
+- Dados de saúde (LGPD): nenhum dado real de paciente no repositório, testes, seeds, logs, screenshots ou PRs.
+- Isolamento por dona do laudo e gestor; fora do alcance responde 404.
+- `/saude/` nunca toca no banco; geração resiliente a queda do servidor.
+
+## Documentos
+
+- `demandas.md` — backlog e "onde parei" (formato do kit)
+- `historico.md` — plano e decisões originais do sistema
+- `REVIEW.md` — checklist do revisor

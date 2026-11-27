@@ -1,0 +1,37 @@
+# CI do kit (Django). Lint em modo "não piorar": só os .py alterados no PR.
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ''
+      DJANGO_SECRET_KEY: chave-de-teste-do-ci-longa-o-suficiente
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt ruff
+
+      - name: Lint dos arquivos alterados
+        if: github.event_name == 'pull_request'
+        run: |
+          arqs=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.py')
+          [ -z "$arqs" ] || ruff check $arqs
+
+      - name: Migrations pendentes
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Testes
+        run: python manage.py test laudos --noinput --parallel auto

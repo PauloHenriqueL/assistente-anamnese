@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Checagem rápida (kit): lint só dos .py alterados + testes. Roda no hook de
+# Stop do Claude e pode rodar à mão. Mantenha em poucos segundos/minutos.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+# venv do projeto; numa worktree, o da pasta principal
+PRINCIPAL="$(git rev-parse --path-format=absolute --git-common-dir)/.."
+PY=python3
+for c in .venv/bin/python venv/bin/python "$PRINCIPAL/.venv/bin/python" "$PRINCIPAL/venv/bin/python"; do
+  [[ -x "$c" ]] && { PY="$c"; break; }
+done
+
+ALTERADOS="$(git diff --name-only --diff-filter=AM HEAD -- '*.py'; git ls-files --others --exclude-standard -- '*.py')"
+if [[ -n "$ALTERADOS" ]] && "$PY" -m ruff --version >/dev/null 2>&1; then
+  "$PY" -m ruff check $ALTERADOS
+fi
+
+export DATABASE_URL=
+"$PY" manage.py makemigrations --check --dry-run >/dev/null
+"$PY" manage.py test laudos --parallel auto --noinput -v 1
