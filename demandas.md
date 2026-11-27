@@ -4,11 +4,7 @@
 —
 
 ## Em andamento
-### B-001 CI vermelho: teste importa httpx, que o openai 3.x trocou por httpx2
-- Branch: b001-teste-httpx2 · PR: —
-- Feito: teste usa httpx2; CI instala tblib (o runner paralelo não mostrava o erro); 129 OK num venv limpo
-- **Próximo passo:** CI verde → merge
-- Bloqueio: —
+—
 
 ## Fila (em ordem)
 - D-001 LGPD: formalizar retenção, backup e registro de quem acessa o quê (dados de saúde) (antigo: Próximas etapas)
@@ -22,6 +18,7 @@
 —
 
 ## Feito
+- B-001 Teste usa httpx2, CI com tblib e lint "não piorar" — PR #3 — 2026-11-27
 - D-000 Adoção do kit — PR #2 — 2026-11-27 (mergeado com CI vermelho por falta de proteção de branch; corrigido em B-001)
 
 ## Decisões
