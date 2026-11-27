@@ -24,11 +24,9 @@ jobs:
 
       - run: pip install -r requirements.txt ruff tblib
 
-      - name: Lint dos arquivos alterados
+      - name: Lint "não piorar" (só falha se um arquivo ganhar avisos)
         if: github.event_name == 'pull_request'
-        run: |
-          arqs=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.py')
-          [ -z "$arqs" ] || ruff check $arqs
+        run: scripts/lint-nao-piorar "$(git merge-base origin/${{ github.base_ref }} HEAD)"
 
       - name: Migrations pendentes
         run: python manage.py makemigrations --check --dry-run

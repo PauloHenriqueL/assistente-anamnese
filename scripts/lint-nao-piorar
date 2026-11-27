@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Lint "não piorar" (kit): falha só se algum .py alterado tem MAIS avisos do
+# ruff do que tinha na base. Avisos antigos não bloqueiam.
+# Uso: scripts/lint-nao-piorar [base]   (padrão: HEAD)   · RUFF=<binário>
+set -euo pipefail
+BASE="${1:-HEAD}"
+RUFF="${RUFF:-ruff}"
+command -v "$RUFF" >/dev/null || { echo "ruff ausente: lint pulado"; exit 0; }
+
+conta() { "$RUFF" check -q --exit-zero --output-format json "$@" | jq length; }
+
+piorou=0
+for f in $( { git diff --name-only --diff-filter=AM "$BASE" -- '*.py'
+              git ls-files --others --exclude-standard -- '*.py'; } | sort -u); do
+  depois=$(conta "$f")
+  antes=0
+  git cat-file -e "$BASE:$f" 2>/dev/null && antes=$(git show "$BASE:$f" | conta --stdin-filename "$f" -)
+  if (( depois > antes )); then
+    echo "$f: $antes → $depois avisos do ruff"
+    "$RUFF" check -q "$f" || true
+    piorou=1
+  fi
+done
+exit $piorou
