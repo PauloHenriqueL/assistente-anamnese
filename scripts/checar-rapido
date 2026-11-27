@@ -10,10 +10,7 @@ for c in .venv/bin/python venv/bin/python "$PRINCIPAL/.venv/bin/python" "$PRINCI
   [[ -x "$c" ]] && { PY="$c"; break; }
 done
 
-ALTERADOS="$(git diff --name-only --diff-filter=AM HEAD -- '*.py'; git ls-files --others --exclude-standard -- '*.py')"
-if [[ -n "$ALTERADOS" ]] && "$PY" -m ruff --version >/dev/null 2>&1; then
-  "$PY" -m ruff check $ALTERADOS
-fi
+RUFF="$(dirname "$PY")/ruff" scripts/lint-nao-piorar HEAD
 
 export DATABASE_URL=
 "$PY" manage.py makemigrations --check --dry-run >/dev/null
