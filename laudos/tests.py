@@ -372,7 +372,7 @@ class OpenAITestes(TestCase):
 
     @override_settings(OPENAI_RACIOCINIO_VERIFICACAO="")
     def test_modelo_sem_temperatura_tenta_sem_ela(self):
-        import httpx
+        import httpx2 as httpx  # o openai 3.x usa httpx2
         from openai import BadRequestError
 
         erro = BadRequestError("temperature not supported", response=httpx.Response(400, request=httpx.Request("POST", "http://x")), body=None)
@@ -902,7 +902,7 @@ class EscolhaDoModeloTestes(TestCase):
 
     @override_settings(IA_PROVEDOR="openai", OPENAI_API_KEY="teste", OPENAI_MODEL="gpt-4o-mini", OPENAI_RACIOCINIO="medium")
     def test_modelo_sem_raciocinio_tenta_de_novo_com_temperatura(self):
-        import httpx
+        import httpx2 as httpx  # o openai 3.x usa httpx2
         from openai import BadRequestError
 
         erro = BadRequestError("Unsupported parameter: 'reasoning_effort'",

@@ -4,10 +4,10 @@
 —
 
 ## Em andamento
-### D-000 Adoção do kit
-- Branch: d000-adocao-kit · PR: —
-- Feito: historico.md, demandas.md, REVIEW.md, scripts/checar-rapido, CI, .gitignore
-- **Próximo passo:** abrir o PR e fazer merge com o CI verde
+### B-001 CI vermelho: teste importa httpx, que o openai 3.x trocou por httpx2
+- Branch: b001-teste-httpx2 · PR: —
+- Feito: teste usa httpx2; CI instala tblib (o runner paralelo não mostrava o erro); 129 OK num venv limpo
+- **Próximo passo:** CI verde → merge
 - Bloqueio: —
 
 ## Fila (em ordem)
@@ -22,7 +22,7 @@
 —
 
 ## Feito
-—
+- D-000 Adoção do kit — PR #2 — 2026-11-27 (mergeado com CI vermelho por falta de proteção de branch; corrigido em B-001)
 
 ## Decisões
 - 2026-11-27 Decisões da entrevista original (escopo, like/deslike, verificação, modo revisão, banco, acesso, segurança, provedores) seguem valendo: ver `historico.md` → "Decisões da entrevista" e "Decisões tomadas por mim".
