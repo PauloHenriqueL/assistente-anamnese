@@ -72,6 +72,11 @@ def secao_do_titulo(titulo):
         return "2"
     if "HISTORIA CLINICA" in t or "ANAMNESE" in t:
         return "4.2"
+    if "DADOS COMPLEMENTARES" in t or "ENTREVISTAS CLINICAS" in t:
+        return "4.3"
+    # Só o título do modelo novo: as "Observações do comportamento" dos laudos antigos usam outra redação do texto padrão.
+    if "OBSERVACAO CLINICA" in t:
+        return "4.4"
     if "RELACAO ENTRE" in t:
         return "5.1"
     if "HIPOTESES" in t:

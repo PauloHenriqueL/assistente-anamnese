@@ -42,14 +42,14 @@
             <div class="estado-vazio">
               <span class="marca-agua">{% include 'laudos/componentes/icone.html' with nome='conversa' tamanho=24 %}</span>
               <h2>{{ secao.rotulo }}</h2>
-              <p>{% if secao.chave == '5.1' %}Conte os resultados dos testes e o que observou. A IA cruza com a anamnese e a 4.2.{% elif secao.chave == '5.2' %}Diga quais diagnósticos você fechou e quais hipóteses descartou, com os seus argumentos.{% elif secao.chave == '6' %}Diga os encaminhamentos que quer incluir, ou peça para a IA propor a partir das seções anteriores.{% else %}Clique em gerar para escrever a seção a partir da anamnese, ou escreva uma orientação antes.{% endif %}</p>
+              <p>{{ secao.convite }}</p>
             </div>
           {% endfor %}
         </div>
 
         {% if dona_do_laudo %}
         <form class="caixa" id="caixa">
-          <textarea id="texto" rows="3" placeholder="{% if paragrafos %}Peça um ajuste, ou cole um bloco que você editou e peça para arrumar a escrita{% elif secao.chave == '2' or secao.chave == '4.2' %}Orientação opcional para a primeira geração{% else %}Escreva para a IA{% endif %}"></textarea>
+          <textarea id="texto" rows="3" placeholder="{% if paragrafos %}Peça um ajuste, ou cole um bloco que você editou e peça para arrumar a escrita{% else %}{{ secao.dica }}{% endif %}"></textarea>
           <div class="escolha-ia">
             <label class="campo-modelo" title="Modelos mais baratos respondem mais rápido, mas escrevem pior.">
               <span class="apagado">Modelo</span>

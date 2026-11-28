@@ -62,9 +62,9 @@ def _estado_atual(laudo, secao):
 def _secoes_de_contexto(laudo, secao):
     partes = []
     for chave in secao.contexto:
-        texto = laudo.texto_secao(chave)
-        titulo = secoes.secao(chave).titulo
-        partes.append(f"## {titulo}\n{texto or 'Ainda não escrita.'}")
+        base, texto = secoes.secao(chave), laudo.texto_secao(chave)
+        if texto or not base.opcional:
+            partes.append(f"## {base.titulo}\n{texto or 'Ainda não escrita.'}")
     return "\n\n".join(partes)
 
 
@@ -664,6 +664,8 @@ def situacao_das_secoes(laudo):
         contagem[p["secao"]] = contagem.get(p["secao"], 0) + 1
     resultado = []
     for s in secoes.SECOES:
-        faltando = [secoes.secao(c).titulo for c in s.contexto if contagem.get(c, 0) == 0]
+        faltando = [
+            secoes.secao(c).titulo for c in s.contexto if contagem.get(c, 0) == 0 and not secoes.secao(c).opcional
+        ]
         resultado.append({"secao": s, "blocos": contagem[s.chave], "faltando": faltando})
     return resultado

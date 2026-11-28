@@ -500,10 +500,10 @@ class SecoesTestes(TestCase):
         self.client.force_login(self.dona)
         self.laudo = Laudo.objects.create(dono=self.dona, paciente="Ligia", anamnese="Queixa: esquece tudo. Sono: dorme mal.")
 
-    def _gerar(self, chave, *blocos, mensagem=""):
+    def _gerar(self, chave, *blocos, mensagem="", texto=""):
         with mock.patch.object(gemini, "gerar", return_value=resposta(*blocos, mensagem=mensagem)) as gerar, \
-             mock.patch.object(gemini, "verificar", return_value=verificacao()):
-            servico.processar_mensagem(self.laudo, "", chave)
+             mock.patch.object(gemini, "verificar", return_value=verificacao()) as self.verificar:
+            servico.processar_mensagem(self.laudo, texto, chave)
         return gerar
 
     def test_visao_geral_lista_as_secoes_em_ordem(self):
@@ -578,6 +578,78 @@ class SecoesTestes(TestCase):
         self._gerar("4.2", par("novo", "sono"))
         self._gerar("5.1", par("novo", "abertura"))
         self.assertNotContains(self.client.get(f"/laudos/{self.laudo.id}/secao/6/"), "ainda não foi escrita")
+
+    def test_D004_CA1_entrevista_complementar_vira_um_bloco_por_fonte(self):
+        vazia = self.client.get(f"/laudos/{self.laudo.id}/secao/4.3/")
+        self.assertContains(vazia, "Cole as anotações da conversa com o familiar")
+        self.assertContains(vazia, 'placeholder="Cole as anotações da entrevista ou o texto do relatório"')
+        notas = "Conversa com a mãe: sempre foi distraído. Relatório da escola: participativo. Relatório da fono: trocas na fala."
+        gerar = self._gerar(
+            "4.3",
+            par("novo", "relatorio", texto="- Relatório Escolar: A escola o descreve como participativo."),
+            par("novo", "familiar", texto="- Entrevista com a mãe: A mãe relata distração desde a infância."),
+            par("novo", "relatorio", texto="- Relatório Fonoaudiológico: Os relatórios indicam trocas na fala."),
+            texto=notas,
+        )
+        sistema, conteudo = gerar.call_args.args[:2]
+        self.assertIn(secoes.COMPLEMENTARES.titulo, sistema)
+        self.assertIn("Um bloco por fonte", sistema)
+        self.assertIn(notas, conteudo)
+        # A entrevista vem antes dos relatórios, e dois relatórios continuam em blocos separados.
+        self.assertEqual([p.tema for p in self.laudo.paragrafos_atuais("4.3")], ["familiar", "relatorio", "relatorio"])
+        self.assertContains(self.client.get(f"/laudos/{self.laudo.id}/secao/4.3/"), "- Relatório Fonoaudiológico")
+        # No laudo, a seção fica entre a 4.2 e a 4.4.
+        self._gerar("4.4", par("novo", "observacao_clinica", texto="Texto da observação."))
+        self._gerar("4.2", par("novo", "sono", texto="Texto da anamnese."))
+        self.assertEqual(secoes.CHAVES, ["2", "4.2", "4.3", "4.4", "5.1", "5.2", "6"])
+        texto = self.client.get(f"/laudos/{self.laudo.id}/texto/").content.decode()
+        trechos = ["Texto da anamnese.", secoes.COMPLEMENTARES.titulo, "- Entrevista com a mãe", "- Relatório Escolar",
+                   "- Relatório Fonoaudiológico", secoes.OBSERVACAO.titulo, "Texto da observação."]
+        posicoes = [texto.index(t) for t in trechos]
+        self.assertEqual(posicoes, sorted(posicoes))
+
+    def test_D004_CA2_observacao_sem_anotacoes_pede_o_texto_padrao(self):
+        self.assertContains(self.client.get(f"/laudos/{self.laudo.id}/secao/4.4/"), "a IA usa o seu texto padrão")
+        padrao = "Ao longo das sessões, Ligia apresentou uma postura colaborativa."
+        gerar = self._gerar("4.4", par("novo", "observacao_clinica", texto=padrao))
+        sistema, conteudo = gerar.call_args.args[:2]
+        self.assertIn("Ao longo das sessões, [nome] apresentou uma postura colaborativa", sistema)
+        self.assertIn("Anamnese anotada de Ligia", conteudo)  # de onde sai o nome que entra no lugar de [nome]
+        # A mensagem vazia vira o pedido da seção, que fica na conversa e chega à IA e à conferência.
+        pedido = self.laudo.mensagens.get(secao="4.4", papel=Mensagem.USUARIA).texto
+        self.assertEqual(pedido, "Escreva a observação clínica com o que eu contei nesta conversa. Se eu não contei nada, use o texto padrão.")
+        self.assertIn(pedido, conteudo)
+        instrucao, material = self.verificar.call_args.args
+        self.assertIn("não precisa de apoio quando a psicóloga pediu o padrão", instrucao)
+        self.assertIn(pedido, material)
+        tela = self.client.get(f"/laudos/{self.laudo.id}/secao/4.4/")
+        self.assertContains(tela, padrao)
+        self.assertNotContains(tela, "Bloco com menos de")  # o padrão é curto e não é resumo excessivo
+
+    def test_D004_CA2_observacao_com_anotacoes_leva_o_que_ela_contou(self):
+        notas = "Chegou agitado, precisou de pausas e falou de forma acelerada."
+        gerar = self._gerar("4.4", par("novo", "observacao_clinica", texto="Texto com a agitação."), texto=notas)
+        self.assertIn(notas, gerar.call_args.args[1])
+        self.assertIn(notas, self.verificar.call_args.args[1])
+        self.assertNotIn(secoes.OBSERVACAO.pedido_inicial, gerar.call_args.args[1])
+
+    def test_D004_CA3_secoes_novas_viram_base_das_seguintes_sem_aviso_quando_faltam(self):
+        self._gerar("2", par("novo", "demanda"))
+        self._gerar("4.2", par("novo", "sono"))
+        # Sem a 4.3 e a 4.4, a 5.1 não avisa que falta base nem fala delas à IA.
+        self.assertNotContains(self.client.get(f"/laudos/{self.laudo.id}/secao/5.1/"), "ainda não foi escrita")
+        conteudo = self._gerar("5.1", par("novo", "abertura")).call_args.args[1]
+        self.assertNotIn(secoes.COMPLEMENTARES.titulo, conteudo)
+        self.assertNotIn(secoes.OBSERVACAO.titulo, conteudo)
+        self.assertNotIn("Ainda não escrita", conteudo)
+        # Escritas, viram base da 5.1, da 5.2 e da 6, para a IA e para a conferência.
+        self._gerar("4.3", par("novo", "escola", texto="A escola o descreve como participativo."), texto="notas da escola")
+        self._gerar("4.4", par("novo", "observacao_clinica", texto="Mostrou-se colaborativa nas sessões."))
+        for chave, tipo in (("5.1", "contraste"), ("5.2", "diagnostico"), ("6", "psicologia")):
+            gerar = self._gerar(chave, par("novo", tipo))
+            for recebido in (gerar.call_args.args[1], self.verificar.call_args.args[1]):
+                self.assertIn("A escola o descreve como participativo.", recebido, chave)
+                self.assertIn("Mostrou-se colaborativa nas sessões.", recebido, chave)
 
     def test_dados_antigos_ficam_na_4_2(self):
         p = Paragrafo.objects.create(laudo=self.laudo, tema="sono")
@@ -800,6 +872,10 @@ class LaudosBaseTestes(TestCase):
 
         self.assertEqual(laudos_base.secao_do_titulo("4.1 HISTÓRIA CLÍNICA"), "4.2")
         self.assertIsNone(laudos_base.secao_do_titulo("4.2 OBSERVAÇÕES DO COMPORTAMENTO"))
+        # Títulos do modelo novo de laudo, em que a anamnese já é a 4.2.
+        self.assertEqual(laudos_base.secao_do_titulo("4.2 DADOS DA ENTREVISTA DE ANAMNESE"), "4.2")
+        self.assertEqual(laudos_base.secao_do_titulo("4.3 DADOS COMPLEMENTARES E ENTREVISTAS CLÍNICAS"), "4.3")
+        self.assertEqual(laudos_base.secao_do_titulo("4.4 DADOS DA OBSERVAÇÃO CLÍNICA"), "4.4")
         self.assertEqual(laudos_base.secao_do_titulo("2. DESCRIÇÃO DA DEMANDA"), "2")
         self.assertEqual(laudos_base.secao_do_titulo("6. RECOMENDAÇÕES E ENCAMINHAMENTOS"), "6")
 
