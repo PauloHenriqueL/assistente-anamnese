@@ -665,7 +665,7 @@ def situacao_das_secoes(laudo):
     resultado = []
     for s in secoes.SECOES:
         faltando = [
-            secoes.secao(c).titulo for c in s.contexto if contagem.get(c, 0) == 0 and not secoes.secao(c).opcional
+            base.titulo for base in map(secoes.secao, s.contexto) if not contagem[base.chave] and not base.opcional
         ]
         resultado.append({"secao": s, "blocos": contagem[s.chave], "faltando": faltando})
     return resultado

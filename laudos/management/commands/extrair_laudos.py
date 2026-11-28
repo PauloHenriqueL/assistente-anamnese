@@ -81,7 +81,8 @@ class Command(BaseCommand):
             linhas.append(f"  - troca: {alvo} → {substituto}")
         for chave in secoes.CHAVES:
             texto = anonimas.get(chave)
-            linhas.append(f"- Seção {chave}: " + (f"{len(texto.split())} palavras" if texto else "NÃO ENCONTRADA"))
+            if texto or not secoes.secao(chave).opcional:
+                linhas.append(f"- Seção {chave}: " + (f"{len(texto.split())} palavras" if texto else "NÃO ENCONTRADA"))
         achados = laudos_base.suspeitos(anonimas.values())
         if achados:
             linhas.append("- Possíveis nomes que sobraram (confira; se for nome, ponha em substituicoes.txt):")

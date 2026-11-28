@@ -617,7 +617,7 @@ class SecoesTestes(TestCase):
         self.assertIn("Anamnese anotada de Ligia", conteudo)  # de onde sai o nome que entra no lugar de [nome]
         # A mensagem vazia vira o pedido da seção, que fica na conversa e chega à IA e à conferência.
         pedido = self.laudo.mensagens.get(secao="4.4", papel=Mensagem.USUARIA).texto
-        self.assertEqual(pedido, "Escreva a observação clínica com o que eu contei nesta conversa. Se eu não contei nada, use o texto padrão.")
+        self.assertEqual(pedido, "Escreva a observação clínica com o que eu contei nesta conversa. Se a seção ainda não tem texto e eu não contei nada, use o texto padrão.")
         self.assertIn(pedido, conteudo)
         instrucao, material = self.verificar.call_args.args
         self.assertIn("não precisa de apoio quando a psicóloga pediu o padrão", instrucao)

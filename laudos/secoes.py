@@ -173,7 +173,7 @@ OBSERVACAO = Secao(
     descricao="Como o paciente se apresentou nas sessões: postura, engajamento, compreensão das instruções, discurso e interação.",
     tipos=[("observacao_clinica", "Observação clínica")],
     opcional=True,
-    pedido_inicial="Escreva a observação clínica com o que eu contei nesta conversa. Se eu não contei nada, use o texto padrão.",
+    pedido_inicial="Escreva a observação clínica com o que eu contei nesta conversa. Se a seção ainda não tem texto e eu não contei nada, use o texto padrão.",
     convite="Conte como o paciente se apresentou nas sessões. Se não houve nada de diferente, clique em gerar sem escrever: a IA usa o seu texto padrão.",
     dica="Conte o que observou, ou gere sem escrever para usar o texto padrão",
     regras="""
@@ -183,7 +183,8 @@ Esta seção descreve como o paciente se apresentou nas sessões de avaliação:
 Texto padrão, para quando a observação não trouxe nada de diferente:
 Ao longo das sessões, [nome] apresentou uma postura colaborativa, demonstrando bom engajamento nas tarefas propostas e compreensão adequada das instruções fornecidas. O discurso mostrou-se coerente e bem estruturado, estabelecendo uma interação funcional com a examinadora.
 
-- Use o texto padrão, só trocando [nome] pelo nome do paciente, quando ela pedir o padrão, disser que não houve alterações ou não contar nada sobre o comportamento nas sessões.
+- Use o texto padrão, só trocando [nome] pelo primeiro nome do paciente, quando ela pedir o padrão, disser que não houve alterações ou não contar nada sobre o comportamento nas sessões.
+- Se a seção já tem texto, nunca troque esse texto pelo padrão sem ela pedir.
 - Quando ela contar o que observou, parta do padrão e escreva só o que ela contou. O que foi diferente entra no lugar da parte do padrão que deixou de valer, ou logo depois dela, em moldes como Inicialmente mostrou-se [como ela descreveu], contudo [o que se manteve], Contudo, apresentou postura mais [como ela descreveu] e Em relação à execução das tarefas, notou-se [o que ela observou], demandando [a mediação que foi necessária].
 - A parte do padrão que contradiz o que ela contou sai do texto. Se ela disser que o paciente pouco colaborou, não escreva postura colaborativa.
 - Nunca acrescente comportamento, emoção ou dificuldade que ela não relatou. Não interprete nem relacione com os testes ou com o diagnóstico, que ficam para a conclusão.
