@@ -3,7 +3,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from laudos import laudos_base, perfil
+from laudos import laudos_base, perfil, secoes
 from laudos.management.commands.carregar_exemplos import ARQUIVO_REAL
 
 PASTA_PADRAO = Path(__file__).resolve().parents[3] / "laudos_exemplos"
@@ -79,9 +79,10 @@ class Command(BaseCommand):
         linhas.append(f"- Paciente → {pseudonimo} (sexo {ident['sexo']}, idade {ident['idade']})")
         for alvo, substituto in sorted(trocas.items()):
             linhas.append(f"  - troca: {alvo} → {substituto}")
-        for chave in ("2", "4.2", "5.1", "5.2", "6"):
+        for chave in secoes.CHAVES:
             texto = anonimas.get(chave)
-            linhas.append(f"- Seção {chave}: " + (f"{len(texto.split())} palavras" if texto else "NÃO ENCONTRADA"))
+            if texto or not secoes.secao(chave).opcional:
+                linhas.append(f"- Seção {chave}: " + (f"{len(texto.split())} palavras" if texto else "NÃO ENCONTRADA"))
         achados = laudos_base.suspeitos(anonimas.values())
         if achados:
             linhas.append("- Possíveis nomes que sobraram (confira; se for nome, ponha em substituicoes.txt):")

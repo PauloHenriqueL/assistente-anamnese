@@ -13,7 +13,7 @@ O critério de um bom parágrafo é dela. Por isso o sistema não tenta adivinha
 ## Como funciona
 
 1. A psicóloga cria o laudo e envia a anamnese anotada em PDF, Word ou texto.
-2. Ela escolhe a seção em que quer trabalhar: descrição da demanda, anamnese, relação entre testes e relatos, hipóteses diagnósticas ou recomendações. Cada seção tem a própria conversa e recebe como base as seções anteriores.
+2. Ela escolhe a seção em que quer trabalhar: descrição da demanda, anamnese, dados complementares e entrevistas clínicas, observação clínica, relação entre testes e relatos, hipóteses diagnósticas ou recomendações. Cada seção tem a própria conversa e recebe como base as seções anteriores.
 3. A IA gera a seção inteira, com um parágrafo por tema e numa ordem fixa. A resposta vem num formato estruturado, em que cada parágrafo traz o tema e os trechos das anotações que o sustentam.
 4. Uma segunda chamada confere cada parágrafo contra as anotações. Ela lista o que ficou de fora e as frases sem apoio.
 5. Se houver problema, só os parágrafos afetados são reescritos, uma única vez. O que ainda sobrar aparece como aviso na tela.
