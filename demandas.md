@@ -4,7 +4,17 @@
 —
 
 ## Em andamento
-—
+
+### D-004 Seções 4.3 e 4.4 do laudo
+- Branch: d004-secoes-4-3-e-4-4 · PR: —
+- Pedido: criar a 4.3 "Dados complementares e entrevistas clínicas" (resumo do que informou um familiar ou profissional que acompanha o paciente) e a 4.4 "Dados da observação clínica" (como o paciente se apresentou nas sessões, com o texto padrão dela).
+- Critérios de aceite:
+  - CA1: dado um laudo, quando ela abre a 4.3 e envia as anotações de uma entrevista ou de um relatório, então a seção ganha um bloco por fonte e aparece entre a 4.2 e a 4.4 na visão geral, no menu e no texto do laudo.
+  - CA2: dado um laudo, quando ela gera a 4.4 sem escrever nada, então o pedido registrado manda usar o texto padrão e a IA recebe esse texto como modelo; quando ela conta o que observou, o pedido leva o que ela contou.
+  - CA3: dado um laudo com a 4.3 ou a 4.4 escrita, quando ela gera a 5.1, a 5.2 ou a 6, então o texto delas vai como base; sem elas, as seções seguintes não avisam que falta base.
+- Feito: levantamento nos nove laudos base (a observação existe neles como "4.2 Observações do comportamento", um parágrafo de 37 a 72 palavras; dados complementares só aparecem num laudo, como blocos "- Relatório ... de [data]:").
+- **Próximo passo:** escrever as duas seções em `laudos/secoes.py`, o contexto opcional e os testes.
+- Bloqueio: —
 
 ## Fila (em ordem)
 - D-001 LGPD: formalizar retenção, backup e registro de quem acessa o quê (dados de saúde) (antigo: Próximas etapas)
